@@ -1,0 +1,2 @@
+# Skrip shell dijalankan di RunPod/Jetson (Linux): harus LF walau di-checkout di Windows.
+*.sh text eol=lf
