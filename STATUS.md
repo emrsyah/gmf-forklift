@@ -13,6 +13,24 @@
 
 **Diputuskan 14 Nov:** `D04_head_drop.nod_count: 3` dan `nod_active_hold_s: 5.0` aktif (risiko K4 #2 dan #7). Lembar 20 skenario sintetis tetap 20/20; skenario 18 terdeteksi di anggukan ke-3 (~8,9 s dari 30 s). `pitch_only_extra_hold_s` (risiko #1) masih 0, tunggu rekaman gladi.
 
+## YOLO kabin cabin_v1 (RunPod RTX 4090, 14 Nov 2026) — split TEST publik, BUKAN gerbang L5
+
+~26 ribu gambar publik (train 23.254 / val 1.358 / test 1.520), 150 epoch, imgsz 640, ~3,5 jam, ~$3,2.
+Terpasang di `models/weights/cabin_best.*`; cabin_v0 di `models/weights/archive/`. Laporan: `training/runs/cabin_v1/gate_report.md` (tidak di-commit).
+
+| Kelas | mAP50 v0 → v1 | Recall@0.35 v1 |
+|---|---|---|
+| all | 0,633 → **0,799** | |
+| phone | 0,25 → **0,528** | 0,42 |
+| helmet | 0,82 → **0,924** | 0,86 |
+| head_no_helmet | 0,61 → **0,781** | 0,64 |
+| vest | 0,70 → **0,871** | 0,81 |
+| torso | 0,79 → **0,889** | 0,80 (no_vest 0,71) |
+
+Masih di bawah gerbang (mAP50 0,85, recall 0,90). Ponsel tetap terlemah: data publik tidak punya ponsel dari sudut kabin.
+`D06_phone.conf` kembali ke 0,35 (spec). Inferensi 640 di CPU laptop ~64 ms (tiap 2 frame).
+Pelajaran RunPod: pod di-stop dengan volume lokal tidak bisa di-resume saat GPU host dipakai orang → pakai **network volume** untuk training berikutnya (atau "Start Pod using CPUs" untuk mengambil file).
+
 ## Uji webcam live 14 Nov 2026 (P0, satu orang — bukan gerbang)
 
 - `check_pose`: 7/7 OK, pitch menunduk −23 / mendongak +35 (tanda benar).

@@ -82,8 +82,9 @@ D05_distraction:
 D06_phone:
   # Spec awal 0.35. Di-tune pada split VALIDASI cabin_v0 (data publik, 137 ponsel):
   #   conf 0.35 -> recall 0.21, precision 0.45, FP 35 | conf 0.50 -> recall 0.18, precision 0.60, FP 17
-  # Kembalikan ke 0.35 (atau tune ulang) setelah model kabin dilatih ulang di GPU / data kabin.
-  conf: 0.50
+  # cabin_v1 (GPU, 2026-11-14): kembali ke nilai spec 0.35 -> recall phone 0.42 di test publik.
+  # Belum di-tune di split val v1 (data ada di pod). Cek alarm palsu D-06 secara live.
+  conf: 0.35
   window_s: 1.0
   ratio: 0.6
 

@@ -38,8 +38,10 @@ cabin:
   yolo:
     enabled: true
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)
-    weights: models/weights/cabin_best.onnx   # cabin_v0: dilatih CPU imgsz 416 (data publik). Training GPU penuh -> 640
-    imgsz: 416
+    # cabin_v1: RunPod RTX 4090, 150 epoch, imgsz 640, ~26 ribu gambar publik (2026-11-14).
+    # cabin_v0 (CPU, imgsz 416) disimpan di models/weights/archive/cabin_v0.*
+    weights: models/weights/cabin_best.onnx
+    imgsz: 640
     # Input YOLO HARUS sama dengan preprocessing training (grayscale 3ch + CLAHE), terlepas dari simulate_nir.
     # Dengan input RGB, model cabin_v0 memberi 'phone' palsu (mis. dasi). none = pakai gambar apa adanya.
     preprocess: nir         # nir | none
@@ -101,5 +103,5 @@ ui:
   window: "Forklift Safety AI - Cabin"
 
 model_versions:
-  cabin: cabin_v0
+  cabin: cabin_v1
   face: mediapipe-1.2
