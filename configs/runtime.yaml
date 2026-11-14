@@ -21,6 +21,9 @@ cabin:
   clahe_clip: 2.0
   clahe_tile: 8
   roi: null                 # [x, y, w, h] relatif 0..1 (crop kursi pengemudi); null = full frame
+  # Uji live 2026-11-14: frame gelap saat webcam baru menyala (mean ~13) -> D-09 palsu di detik 3.
+  # Indikator tetap dihitung, tapi tidak ada alert selama sekian detik pertama sumber kamera.
+  startup_grace_s: 3.0
   face:
     model: mediapipe        # mediapipe (fase 1) | mtdms (fase 2, belum ada)
     model_path: models/mediapipe/face_landmarker.task

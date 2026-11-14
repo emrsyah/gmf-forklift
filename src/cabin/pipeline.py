@@ -71,6 +71,7 @@ class CabinPipeline:
         self.require_moving = bool(thresholds.get("vehicle", {}).get("require_moving", False))
         self._last_yolo: CabinDetections | None = None
         self._n = 0
+        self._t_first_ms: int | None = None
 
     def process(self, frame: Frame, moving: bool = True) -> CabinState:
         t0 = time.perf_counter()
@@ -117,9 +118,13 @@ class CabinPipeline:
             yolo_valid=yolo is not None,
             blocked_frame=blocked, moving=moving_ok,
         )
+        if self._t_first_ms is None:
+            self._t_first_ms = frame.ts_ms
+        # beberapa detik pertama kamera (auto-exposure, frame gelap) tidak boleh memicu alert (mis. D-09)
+        warm = frame.ts_ms - self._t_first_ms < self.cab.get("startup_grace_s", 0.0) * 1000
         active = {}
         for code, ind in self.indicators.items():
-            if ind.update(x):
+            if ind.update(x) and not warm:
                 active[code] = {"confidence": ind.confidence,
                                 "condition_start_ms": ind.condition_start_ms}
         extra = {"t_video_s": round(frame.video_t_s, 3)}
