@@ -1,0 +1,18 @@
+# MahekDharod/cellphone-detection-dataset -> kelas kabin. Upstream: 0 cellphone.
+source: cellphone_mahek
+
+map:
+  cellphone: [phone]
+
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: true
+  torso_from_person: []
+
+# Foto WhatsApp/IMG dari satu sesi -> seluruh sumber satu grup (masuk ke satu split saja).
+group:
+  regex: []
+  whole_source: true

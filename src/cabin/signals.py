@@ -1,0 +1,139 @@
+"""Sinyal per frame dari observasi wajah (Tech Spec bagian 3).
+
+Interface `FaceSignals` TETAP (aturan kerja 4): indikator hanya membaca field di sini,
+apa pun model wajahnya.
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass
+
+import numpy as np
+
+from .face import FaceObs
+
+# Indeks landmark mata MediaPipe (Tech Spec bag. 3): p1..p6 untuk EAR
+LEFT_EYE = [33, 160, 158, 133, 153, 144]
+RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
+
+@dataclass
+class FaceSignals:
+    ts_ms: int
+    face_present: bool
+    ear_l: float = 0.0
+    ear_r: float = 0.0
+    ear: float = 0.0
+    openness: float = 1.0         # mean EAR / ear_baseline (0 = tertutup, ~1 = terbuka normal)
+    blink: float = 0.0            # max(eyeBlinkLeft, eyeBlinkRight)
+    eye_closed: bool = False
+    eye_valid: bool = False
+    yaw: float = 0.0              # derajat, relatif ke baseline kalibrasi
+    pitch: float = 0.0            # < 0 = menunduk
+    roll: float = 0.0
+    mouth_open: bool = False
+    jaw_open: float = 0.0
+    calibrated: bool = False
+
+
+def eye_aspect_ratio(pts: np.ndarray) -> float:
+    """EAR standar (Soukupová & Čech 2016): (|p2-p6| + |p3-p5|) / (2 |p1-p4|).
+
+    Catatan: rumus asli di PDF Technical Spec terpotong saat ekspor; ini rumus EAR standar
+    dengan urutan indeks yang sama seperti di spec.
+    """
+    p1, p2, p3, p4, p5, p6 = pts
+    horiz = np.linalg.norm(p1 - p4)
+    if horiz < 1e-6:
+        return 0.0
+    return float((np.linalg.norm(p2 - p6) + np.linalg.norm(p3 - p5)) / (2.0 * horiz))
+
+
+class _Median:
+    def __init__(self, n: int):
+        self.buf: deque = deque(maxlen=max(1, n))
+
+    def __call__(self, v: float) -> float:
+        self.buf.append(v)
+        return float(np.median(self.buf))
+
+    def reset(self):
+        self.buf.clear()
+
+
+class SignalExtractor:
+    """FaceObs -> FaceSignals, dengan median filter dan baseline kalibrasi."""
+
+    _KEYS = ("ear_l", "ear_r", "blink", "yaw", "pitch", "roll", "jaw")
+
+    def __init__(self, sig_cfg: dict, calibration):
+        self.c = sig_cfg
+        self.cal = calibration
+        n = int(sig_cfg.get("median_frames", 3))
+        self._med = {k: _Median(n) for k in self._KEYS}
+        self._closed = False
+
+    def raw_values(self, obs: FaceObs) -> dict:
+        lm = obs.landmarks_px
+        ear_l = eye_aspect_ratio(lm[LEFT_EYE])
+        ear_r = eye_aspect_ratio(lm[RIGHT_EYE])
+        bs = obs.blendshapes
+        return {
+            "ear_l": ear_l, "ear_r": ear_r,
+            "blink": max(bs.get("eyeBlinkLeft", 0.0), bs.get("eyeBlinkRight", 0.0)),
+            "yaw": obs.yaw_raw, "pitch": obs.pitch_raw, "roll": obs.roll_raw,
+            "jaw": bs.get("jawOpen", 0.0),
+        }
+
+    def update(self, obs: FaceObs, ts_ms: int) -> FaceSignals:
+        if not obs.present or obs.landmarks_px is None:
+            for m in self._med.values():
+                m.reset()
+            self._closed = False
+            return FaceSignals(ts_ms=ts_ms, face_present=False, calibrated=self.cal.done)
+
+        raw = self.raw_values(obs)
+        self.cal.observe(ts_ms, raw)
+        v = {k: self._med[k](raw[k]) for k in self._KEYS}
+
+        ear = (v["ear_l"] + v["ear_r"]) / 2.0
+        base = self.cal.ear_baseline
+        openness = ear / base if base > 1e-6 else 1.0
+        yaw = v["yaw"] - self.cal.yaw0
+        pitch = v["pitch"] - self.cal.pitch0
+        roll = v["roll"] - self.cal.roll0
+
+        c = self.c
+        open_max = c.get("closed_openness_max", 0.30)
+        blink_min = c.get("closed_blink_min", 0.50)
+        if self._closed:
+            # hysteresis: setelah tertutup, mata dianggap tetap tertutup sampai jelas terbuka lagi
+            # (pejam santai berayun di sekitar ambang masuk -> run D-02 tidak terputus)
+            ex_open = c.get("closed_openness_exit")
+            ex_blink = c.get("closed_blink_exit")
+            open_max = open_max if ex_open is None else ex_open
+            blink_min = blink_min if ex_blink is None else ex_blink
+        closed_by_open = openness < open_max
+        closed_by_blink = v["blink"] > blink_min
+        logic = c.get("closed_logic", "and")
+        if logic == "and":
+            eye_closed = closed_by_open and closed_by_blink
+        elif logic == "or":
+            eye_closed = closed_by_open or closed_by_blink
+        elif logic == "blink_only":
+            eye_closed = closed_by_blink
+        else:
+            eye_closed = closed_by_open
+        self._closed = bool(eye_closed)
+
+        eye_valid = (pitch >= -c.get("eye_valid_pitch_down_max_deg", 25)
+                     and abs(yaw) <= c.get("eye_valid_yaw_max_deg", 45))
+
+        return FaceSignals(
+            ts_ms=ts_ms, face_present=True,
+            ear_l=v["ear_l"], ear_r=v["ear_r"], ear=ear, openness=openness, blink=v["blink"],
+            eye_closed=bool(eye_closed), eye_valid=bool(eye_valid),
+            yaw=yaw, pitch=pitch, roll=roll,
+            mouth_open=v["jaw"] > c.get("mouth_open_jaw_min", 0.6), jaw_open=v["jaw"],
+            calibrated=self.cal.done,
+        )

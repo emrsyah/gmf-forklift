@@ -1,0 +1,161 @@
+# Sumber dataset publik untuk model YOLO kamera DEPAN (Model 4, Tech Spec bag. 6).
+# Dipakai oleh training/scripts/front_sources.py + build_front_dataset.py. Lisensi: LICENSES_FRONT.md.
+#
+# Field umum:
+#   enabled      : ikut di-download/di-build
+#   type         : coco_ultralytics | loco | crowdhuman | apron_local | yolo_local | roboflow
+#   class_map    : file di training/datasets/class_maps/
+#   max_images   : batas gambar build penuh (null = semua). --limit (smoke) menimpa ini.
+#   download_mb  : perkiraan unduhan untuk max_images (informasi saja)
+#   manual       : petunjuk unduh manual (sumber yang butuh registrasi / tidak bisa diunduh otomatis)
+#
+# Sumber zip besar (LOCO 769 MB, CrowdHuman 2,3-3,1 GB per zip) dibaca lewat HTTP Range: hanya central
+# directory + gambar yang dipilih yang diunduh. Jika zip/folder sudah ada lokal (local_zip / local_dir),
+# file lokal yang dipakai.
+
+sources:
+  # COCO 2017: gambar berisi person (kelas 0). Label YOLO dari rilis Ultralytics (48,6 MB), gambar per file
+  # dari images.cocodataset.org. Tanpa token. (handler dipakai ulang dari download_public.py)
+  coco_person:
+    enabled: true
+    type: coco_ultralytics
+    labels_zip_url: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip
+    image_url_template: http://images.cocodataset.org/{split}/{name}
+    splits: [train2017, val2017]
+    require_class: 0                    # person
+    min_box_area_frac: 0.002            # minimal satu orang yang tidak terlalu kecil (jarak 2-10 m di kamera depan)
+    class_map: front_coco_person.yaml
+    max_images: 5000                    # Tech Spec bag. 6: "subset ~5.000"
+    download_mb: 850
+
+  # LOCO (TU Munich): 5.593 gambar beranotasi, 5 lokasi gudang, JSON COCO di GitHub, gambar di dataset.zip
+  # (webdisk TUM, tautan anonim, mendukung Range). Tanpa token. Lisensi CC0.
+  loco:
+    enabled: true
+    type: loco
+    annotation_url_template: https://raw.githubusercontent.com/tum-fml/loco/main/rgb/{file}
+    annotation_files:                   # per subset (total ~104 MB); subset = lokasi
+      - loco-sub1-v1-val.json
+      - loco-sub2-v1-train.json
+      - loco-sub3-v1-train.json
+      - loco-sub4-v1-val.json
+      - loco-sub5-v1-train.json
+    images_zip_url: https://webdisk.ads.mwn.de/Handlers/AnonymousDownload.ashx?folder=73e976ba&path=LOCO%5Cv1%5Cdataset.zip
+    local_zip: data/manual/loco/dataset.zip      # opsional: jika sudah diunduh penuh (769 MB) dari https://go.mytum.de/239870
+    local_dir: null                              # opsional: folder berisi file JSON di atas
+    class_map: front_loco.yaml
+    max_images: null                    # semua 5.593
+    download_mb: 870                    # JSON ~104 + gambar ~769
+
+  # CrowdHuman (Megvii) lewat mirror HuggingFace sshao0516/CrowdHuman (tidak di-gate, kartu: cc-by-nc-4.0).
+  # Tanpa token. Hanya gambar terpilih yang diunduh dari zip (HTTP Range).
+  crowdhuman:
+    enabled: true
+    type: crowdhuman
+    url_template: https://huggingface.co/datasets/sshao0516/CrowdHuman/resolve/main/{file}
+    annotation_files: [annotation_train.odgt]    # 80 MB, 15.000 gambar
+    image_zips: [CrowdHuman_train01.zip, CrowdHuman_train02.zip, CrowdHuman_train03.zip]
+    box: vbox                           # visible box (konsisten dengan COCO); fbox = badan penuh termasuk yang tertutup
+    local_dir: data/manual/crowdhuman   # alternatif manual: <dir>/annotation_train.odgt + <dir>/Images/<ID>.jpg
+    local_images_dir: Images
+    class_map: front_crowdhuman.yaml
+    max_images: 3000
+    download_mb: 650                    # 80 MB odgt + ~3000 x ~190 KB
+    manual: |
+      Jika HF tidak tersedia: unduh dari https://www.crowdhuman.org/download.html (Google Drive)
+      CrowdHuman_train01..03.zip + annotation_train.odgt, ekstrak ke data/manual/crowdhuman/ sehingga
+      gambar ada di data/manual/crowdhuman/Images/<ID>.jpg dan odgt di data/manual/crowdhuman/annotation_train.odgt.
+
+  # Apron Dataset (AIT): 10.098 gambar dashcam bandara 3860x2160, 43 kategori, >169 ribu objek.
+  # BUTUH REGISTRASI + PERSETUJUAN -> unduh manual. Dilewati otomatis jika folder belum ada.
+  apron:
+    enabled: true
+    type: apron_local
+    local_dir: data/manual/apron
+    images_dir: images                  # <local_dir>/images/**/<nama>.jpg|png
+    bboxes_dir: bboxes                  # <local_dir>/bboxes/**/<nama>.csv (path relatif sama dengan gambar)
+    class_map: front_apron.yaml
+    max_images: null
+    download_mb: null
+    names:                              # ApronFine, id 0..42 (scripts/aprondataset/datasets.py upstream)
+      - Airside Safety Vehicle
+      - Ambulance Vehicle
+      - Business Jet
+      - Cargo Airplane
+      - Cleaning Vehicle
+      - Common Aircraft
+      - Container Trolley
+      - Container Trolley Type A
+      - Container Trolley Type B
+      - Container Trolley Type C
+      - Conveyer Vehicle
+      - Fire Truck
+      - Forklift
+      - Helicopter
+      - Loading Ramp
+      - Loading Vehicle
+      - Other Objects
+      - Other Vehicles
+      - Passenger Bus
+      - Passenger Jet
+      - Passenger Stairway
+      - Pedestrian Crossing
+      - Person Wearing Reflective Vests
+      - Rescue Helicopter
+      - Sanitary Truck
+      - Snowplow
+      - Speed Limit 30
+      - Standard Car
+      - Standard Truck
+      - Tank Truck
+      - Taxiing Vehicle
+      - Tow Vehicle
+      - Tractor
+      - Traffic Barrier
+      - Traffic Cone
+      - Traffic Cone - Off
+      - Traffic Cone - On
+      - Traffic Cone - Standard
+      - Traffic Sign
+      - Transport Container
+      - Transport Vehicle
+      - Warning Sign
+      - Person
+    manual: |
+      1. Daftar/login di https://wilddash.cc/accounts/login lalu minta akses di https://wilddash.cc/aprondataset
+         (hanya pengguna terdaftar & disetujui; lisensi NON-KOMERSIAL, lihat LICENSES_FRONT.md).
+      2. Ekstrak sehingga:
+           data/manual/apron/images/<...>/<nama>.jpg   (atau .png)
+           data/manual/apron/bboxes/<...>/<nama>.csv   (CSV per gambar: label,tlx,tly,brx,bry,occluded,...)
+         Struktur subfolder (mis. per sekuens / per split resmi) boleh dipertahankan: nama subfolder ikut
+         masuk ke stem dan dipakai sebagai GRUP split.
+      3. Cek penamaan file lalu sesuaikan group.regex di class_maps/front_apron.yaml sehingga satu
+         sekuens = satu grup (build mencetak peringatan jika regex tidak cocok; gambar itu dikirim ke train).
+      4. Jika file kategori di rilis berbeda dari daftar names di atas, perbarui names (urutan = id label CSV).
+
+  # Data sintetis (Isaac Sim / Omniverse Replicator) atau rekaman tim berlabel CVAT. PLACEHOLDER: dilewati
+  # sampai folder ada. Format: <local_dir>/images/**, <local_dir>/labels/** (YOLO), <local_dir>/classes.txt.
+  synthetic:
+    enabled: true
+    type: yolo_local
+    local_dir: data/manual/synthetic
+    class_map: front_synthetic.yaml
+    max_images: null
+    download_mb: null
+    manual: |
+      Isi data/manual/synthetic/ dengan ekspor YOLO (classes.txt memakai nama kelas kita, mis. ladder_stand,
+      aircraft_part). Semua gambar sintetis masuk train (split.fixed '^synthetic:').
+
+  # Roboflow Universe forklift/person (OPSIONAL). Hanya aktif jika env ROBOFLOW_API_KEY ada DAN
+  # workspace/project sudah diisi (bukan CHANGE_ME). Cari "forklift" di https://universe.roboflow.com,
+  # pilih dataset berlisensi jelas (CC BY 4.0 / Public Domain), isi slug + versi, sesuaikan class map.
+  roboflow_forklift:
+    enabled: false
+    type: roboflow
+    workspace: CHANGE_ME
+    project: CHANGE_ME
+    version: 1
+    export_format: yolov8
+    class_map: front_roboflow_forklift.yaml
+    max_images: null
+    download_mb: null

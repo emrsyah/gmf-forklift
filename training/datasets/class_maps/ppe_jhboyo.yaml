@@ -1,0 +1,30 @@
+# jhboyo/ppe-dataset -> kelas kabin.
+# Upstream: 0 helmet, 1 head (tanpa helm), 2 vest.
+source: ppe_jhboyo
+
+# nama kelas upstream -> daftar kelas kita (list kosong / tidak disebut = dibuang)
+map:
+  helmet: [helmet]
+  head: [head_no_helmet]
+  vest: [vest, torso]          # kotak rompi ~ kotak torso -> torso juga diberi label (no_vest = torso tanpa vest)
+
+# Kelas kita yang dilabel LENGKAP oleh upstream (objek yang tidak dilabel = latar).
+# Dicek manual (sampel 40 label/prefix): ds1 hanya helmet+head, ds2 hanya helmet+vest.
+labelled: [helmet]
+subsets:
+  - match: '^ds1_'             # andrewmvd hard-hat-workers: rompi TIDAK dilabel
+    labelled: [helmet, head_no_helmet]
+  - match: '^ds2_'             # construction-site-safety: kepala tanpa helm TIDAK dilabel
+    labelled: [helmet, vest]
+
+# Isi label yang hilang dengan model pose (lihat cabin_build.yaml -> pose_fill).
+derive:
+  torso_from_pose: true        # torso dari bahu-pinggul (kecuali sudah ada torso dari vest)
+  head_from_pose: true         # kepala tanpa helm dari keypoint wajah, hanya jika kelas head_no_helmet tidak dilabel
+  torso_from_person: []        # tidak ada kelas person di sumber ini
+
+# Grup untuk split. Nama asli upstream hilang (ds1_/ds2_ + nomor), jadi grup = file;
+# duplikat/near-duplicate digabung oleh dHash di split.py.
+group:
+  regex: []
+  whole_source: false

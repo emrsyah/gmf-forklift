@@ -1,0 +1,21 @@
+# Template untuk sumber Roboflow opsional (sources.yaml -> roboflow_example).
+# Ganti kunci "map" dengan nama kelas di data.yaml dataset Roboflow yang dipilih.
+source: roboflow_example
+
+map:
+  phone: [phone]
+  cell phone: [phone]
+  mobile phone: [phone]
+
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: true
+  torso_from_person: []
+
+group:
+  regex:
+    - '^(?P<g>.+?)_(?:jpg|jpeg|png)\.rf\.'
+  whole_source: false

@@ -1,0 +1,28 @@
+# 20 skenario Lembar A (Logbook KPI UC2 — Forklift), disalin dari CLAUDE.md bagian 4.3.
+# Dipakai oleh tools/recorder.py (hotkey) dan eval/replay_eval.py (tabel laporan).
+# Jika Logbook asli (.xlsx) berbeda, Logbook yang menang — perbarui file ini.
+
+match_tail_s: 2.0      # event dihitung milik skenario jika muncul di [start_s, end_s + ini]
+min_gap_s: 30          # jeda antarskenario minimal (Logbook)
+
+scenarios:
+  - {"no":1,  code: D01, level: A-02, duration_s: 60, desc: "Pejam mata lambat berulang"}
+  - {"no":2,  code: D01, level: A-02, duration_s: 60, desc: "Pejam lambat, kepala tegak menghadap depan"}
+  - {"no":3,  code: D01, level: A-02, duration_s: 60, desc: "Pejam lambat, peraga lain"}
+  - {"no":4,  code: D01, level: A-02, duration_s: 60, desc: "Pejam lambat, cahaya redup"}
+  - {"no":5,  code: D02, level: A-03, duration_s: 3,  desc: "Pejam mata terus"}
+  - {"no":6,  code: D02, level: A-03, duration_s: 3,  desc: "Pejam mata terus, peraga lain"}
+  - {"no":7,  code: D02, level: A-03, duration_s: 3,  desc: "Pejam mata sambil sedikit menunduk"}
+  - {"no":8,  code: D05, level: A-02, duration_s: 3,  desc: "Menoleh ke kanan"}
+  - {"no":9,  code: D05, level: A-02, duration_s: 3,  desc: "Menunduk ke pangkuan"}
+  - {"no":10, code: D05, level: A-02, duration_s: 3,  desc: "Menoleh ke kiri"}
+  - {"no":11, code: D05, level: A-02, duration_s: 30, desc: "Menoleh bergantian kanan-kiri tiap 1 s"}
+  - {"no":12, code: D06, level: A-02, duration_s: 3,  desc: "Ponsel posisi mengetik"}
+  - {"no":13, code: D06, level: A-02, duration_s: 3,  desc: "Ponsel di telinga"}
+  - {"no":14, code: D06, level: A-02, duration_s: 3,  desc: "Ponsel setinggi kemudi, sebagian tertutup tangan"}
+  - {"no":15, code: D10, level: A-02, duration_s: 15, desc: "Tanpa helm, rompi terpasang"}
+  - {"no":16, code: D10, level: A-02, duration_s: 15, desc: "Tanpa rompi, helm terpasang"}
+  - {"no":17, code: D10, level: A-02, duration_s: 15, desc: "Tanpa helm dan tanpa rompi"}
+  - {"no":18, code: D04, level: A-03, duration_s: 30, desc: "Kepala tunduk perlahan lalu tegak, diulang"}
+  - {"no":19, code: D04, level: A-03, duration_s: 5,  desc: "Kepala miring ke bahu, bertahan"}
+  - {"no":20, code: D09, level: A-03, duration_s: 15, desc: "Lensa kamera ditutup telapak tangan"}

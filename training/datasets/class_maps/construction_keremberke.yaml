@@ -1,0 +1,26 @@
+# keremberke/construction-safety-object-detection (Roboflow construction-site-safety v1).
+# Upstream (COCO json): barricade, dumpster, excavators, gloves, hardhat, mask, no-hardhat, no-mask,
+# no-safety vest, person, safety net, safety shoes, safety vest, dump truck, mini-van, truck, wheel loader
+source: construction_keremberke
+
+map:
+  hardhat: [helmet]
+  no-hardhat: [head_no_helmet]
+  safety vest: [vest, torso]
+  no-safety vest: [torso]
+  person: []                   # hanya untuk torso_from_person
+
+labelled: [helmet, head_no_helmet, vest]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: false
+  torso_from_person: [person]
+
+# Frame video "RPReplay_Final1667001201_MP4-159_jpg.rf.<hash>" -> satu grup per video.
+group:
+  regex:
+    - '^(?P<g>.+?_MP4)-\d+_jpg\.rf\.'
+    - '^(?P<g>.+?)_(?:jpg|jpeg|png)\.rf\.'
+  whole_source: false

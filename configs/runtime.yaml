@@ -1,0 +1,105 @@
+# Konfigurasi runtime: sumber kamera, backend inferensi, keluaran alert.
+# Fase 2 (Jetson): ganti cabin.source.type ke "gstreamer", backend ke "tensorrt", alert ke "gpio", sink ke MQTT Minerva.
+
+device_id: laptop-dev
+event_id_prefix: laptop
+timezone_offset_h: 7        # WIB, untuk tanggal di event_id
+
+cabin:
+  source:
+    type: webcam            # webcam | file | url | gstreamer
+    index: 0
+    path: null              # untuk type=file
+    url: null               # untuk type=url (aplikasi IP camera di HP)
+    pipeline: null          # untuk type=gstreamer (Jetson)
+    width: 640
+    height: 480
+    fps: 30
+    realtime: true          # file: putar sesuai timestamp asli (replay = live)
+    api: auto               # webcam backend OpenCV: auto | dshow | msmf | v4l2
+  simulate_nir: false       # grayscale 3 channel + CLAHE (aturan kerja 7)
+  clahe_clip: 2.0
+  clahe_tile: 8
+  roi: null                 # [x, y, w, h] relatif 0..1 (crop kursi pengemudi); null = full frame
+  face:
+    model: mediapipe        # mediapipe (fase 1) | mtdms (fase 2, belum ada)
+    model_path: models/mediapipe/face_landmarker.task
+    max_side_px: 640
+    min_detection_conf: 0.5
+    min_presence_conf: 0.5
+    min_tracking_conf: 0.5
+    # Konvensi sumbu pose (cek sekali dengan tools/check_pose.py):
+    #   yaw   > 0 = menoleh ke kanan pengemudi
+    #   pitch < 0 = menunduk
+    #   roll  > 0 = miring ke bahu kanan
+    yaw_sign: 1
+    pitch_sign: 1
+    roll_sign: 1
+  yolo:
+    enabled: true
+    backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)
+    weights: models/weights/cabin_best.onnx   # cabin_v0: dilatih CPU imgsz 416 (data publik). Training GPU penuh -> 640
+    imgsz: 416
+    # Input YOLO HARUS sama dengan preprocessing training (grayscale 3ch + CLAHE), terlepas dari simulate_nir.
+    # Dengan input RGB, model cabin_v0 memberi 'phone' palsu (mis. dasi). none = pakai gambar apa adanya.
+    preprocess: nir         # nir | none
+    every_n_frames: 2
+    class_names: [phone, helmet, head_no_helmet, vest, torso]
+    providers: [CPUExecutionProvider]
+
+front:
+  enabled: false
+  source:
+    type: file
+    index: 1
+    path: null
+    url: null
+    pipeline: null
+    width: 1280
+    height: 720
+    fps: 30
+    realtime: true
+    api: auto
+  yolo:
+    backend: ultralytics
+    weights: models/weights/yolo11n.pt   # COCO pretrained; nanti front_best
+    imgsz: 640
+    tracker: bytetrack.yaml
+    class_names: null        # null = pakai nama dari model
+    person_class: person
+  calibration: configs/front_camera.yaml
+
+alert:
+  type: laptop_beep         # laptop_beep | gpio | none
+  gpio_pin: 18
+  beep_freq_hz: 2000
+  beep_ms: 250
+
+sink:
+  file:
+    enabled: true
+    dir: events             # events/YYYY-MM-DD/events.jsonl
+  mqtt:
+    enabled: false
+    host: localhost
+    port: 1883
+    topic: forklift/{device_id}/events   # format topik final dari tim Minerva (pertanyaan terbuka #3)
+    qos: 1
+    spool_dir: events/_spool              # antrean lokal jika broker tidak tersambung
+
+recording:
+  enabled: true
+  pre_s: 10
+  post_s: 5
+  fps: 15
+  width: 1280               # frame lebih besar diperkecil
+  jpeg_quality: 80
+  ffmpeg: ffmpeg            # path ffmpeg; fallback ke encoder OpenCV jika tidak ada
+
+ui:
+  show: true
+  window: "Forklift Safety AI - Cabin"
+
+model_versions:
+  cabin: cabin_v0
+  face: mediapipe-1.2

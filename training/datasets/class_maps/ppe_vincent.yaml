@@ -1,0 +1,28 @@
+# VincentGOURBIN/ppe-detection (Roboflow ppe-detection-1 v2) -> kelas kabin.
+# Upstream: 0 helmet, 1 no-helmet, 2 no-vest, 3 person, 4 vest.
+# Dicek visual (10 overlay): no-helmet = kotak kepala, no-vest dan vest = kotak badan (bahu-pinggul),
+# person = seluruh badan. Label cukup bising (ada orang tanpa label vest/no-vest).
+source: ppe_vincent
+
+map:
+  helmet: [helmet]
+  no-helmet: [head_no_helmet]
+  no-vest: [torso]             # torso tanpa rompi, dilabel manusia
+  vest: [vest, torso]
+  person: []                   # dipakai hanya untuk torso_from_person (fallback)
+
+labelled: [helmet, head_no_helmet, vest]
+subsets: []
+
+derive:
+  torso_from_pose: true        # orang tanpa label vest/no-vest
+  head_from_pose: false        # head_no_helmet sudah dilabel
+  torso_from_person: [person]  # fallback jika pose gagal di dalam kotak person
+
+# Roboflow: <stem>_jpg.rf.<hash>.jpg -> 3 salinan augmentasi per stem.
+# Nama "12_Group_Group_12_..._10" = frame ke-10 dari grup foto 12 -> gabung per grup.
+group:
+  regex:
+    - '^(?P<g>\d+_Group_.+?)_\d+_jpg\.rf\.'
+    - '^(?P<g>.+?)_(?:jpg|jpeg|png)\.rf\.'
+  whole_source: false

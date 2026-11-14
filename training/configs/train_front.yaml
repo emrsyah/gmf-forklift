@@ -1,0 +1,40 @@
+# Training YOLO kamera depan (Model 4) — resep Tech Spec bag. 6:
+#   yolo detect train model=yolo11n.pt data=training/datasets/front.yaml \
+#       imgsz=640 epochs=150 patience=30 batch=32 fliplr=0.5 mosaic=1.0 seed=0
+# Augmentasi warna/geometri lain = default Ultralytics (kamera depan RGB, bukan NIR -> hsv_h/hsv_s TIDAK dimatikan).
+# Augmentasi offline (blur, noise, gain, strip mast) sudah diterapkan di build_front_dataset.py.
+# Jika orang jauh sering terlewat: coba imgsz=832 dan UKUR latency dulu (Tech Spec bag. 6).
+
+model: models/weights/yolo11n.pt
+data: training/datasets/front.yaml
+project: training/runs
+name: front_v1
+
+train:
+  imgsz: 640
+  epochs: 150
+  patience: 30
+  batch: 32
+  fliplr: 0.5
+  mosaic: 1.0
+  seed: 0
+  deterministic: true
+  workers: 8
+  device: null
+  cache: false
+  plots: true
+
+export:
+  format: onnx
+  imgsz: 640
+  opset: 17
+  dynamic: false
+  simplify: true
+  # nms tidak di-set = output mentah (1, 4+7, N) yang diharapkan src/backends/ort_backend.py
+  check_conf: 0.25
+  weights_dir: models/weights
+  weights_name: front_best              # -> models/weights/front_best.pt / .onnx
+
+report:
+  # L9 tidak punya gerbang angka untuk model depan; laporan hanya metrik per kelas pada split test publik.
+  split: test

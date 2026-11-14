@@ -1,0 +1,18 @@
+# Panduan rekaman diagnostik: ambang mata tertutup, lensa tertutup (D-09), lihat pangkuan (D-05).
+# Dipakai: python -m tools.recorder --peraga P0 --session diag --guide configs/guides/diag_eyes_cover_lap.yaml
+# Setiap langkah: dur_s detik, teks 'say' tampil besar di layar. Rekaman berhenti otomatis di akhir.
+steps:
+  - {dur_s: 6,  say: "TATAP LURUS KE DEPAN (kalibrasi)"}
+  - {dur_s: 12, say: "Duduk normal, kedip biasa"}
+  - {dur_s: 15, say: "Kedip LAMBAT santai (~1 detik pejam), ulangi"}
+  - {dur_s: 4,  say: "Normal, mata terbuka"}
+  - {dur_s: 4,  say: "PEJAM SANTAI terus (jangan diperas)"}
+  - {dur_s: 5,  say: "Buka mata, normal"}
+  - {dur_s: 5,  say: "TUTUP LENSA dengan telapak tangan"}
+  - {dur_s: 5,  say: "Lepas tangan, tatap depan"}
+  - {dur_s: 5,  say: "LIHAT PANGKUAN, mata terbuka"}
+  - {dur_s: 5,  say: "Tegak, tatap depan"}
+  - {dur_s: 5,  say: "LIHAT PANGKUAN, menunduk LEBIH DALAM"}
+  - {dur_s: 5,  say: "Tegak, tatap depan"}
+  - {dur_s: 4,  say: "PEJAM SANTAI terus sekali lagi"}
+  - {dur_s: 3,  say: "Selesai - terima kasih"}

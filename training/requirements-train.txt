@@ -1,0 +1,17 @@
+# Dependensi pipeline data + training kabin (L5). torch diambil dari image/venv yang ada.
+# albumentations + albucore dipasang dengan --no-deps (lihat runpod/setup.sh) supaya tidak menarik
+# opencv-python-headless yang bentrok dengan opencv-python (dipakai cv2.imshow di runtime laptop).
+ultralytics==8.4.212
+huggingface_hub>=0.26
+requests
+pyyaml
+numpy
+opencv-python
+onnx
+onnxruntime
+onnxslim
+# dependensi albumentations 2.0.8 / albucore 0.0.24 (tanpa opencv-python-headless)
+pydantic>=2.9
+scipy
+simsimd
+stringzilla

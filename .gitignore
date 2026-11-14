@@ -1,0 +1,39 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_tmp/
+.pytest_cache/
+
+# Data, rekaman, wajah orang — JANGAN di-commit (aturan kerja 9 & 11)
+data/
+events/
+eval/scenarios/*.mp4
+eval/scenarios/*.avi
+eval/scenarios/*.mkv
+eval/scenarios/*.ts.csv
+eval/scenarios/*truth*.csv
+eval/reports/
+recordings/
+training/runs/
+runs/
+*.mp4
+*.avi
+*.mkv
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.png
+
+# Bobot model besar dan engine TensorRT
+models/weights/*
+!models/weights/.gitkeep
+models/engines/
+models/mediapipe/*.task
+*.pt
+*.onnx
+*.engine
+
+# Rahasia
+.env
+*.key

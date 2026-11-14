@@ -1,0 +1,27 @@
+# Pemetaan kode -> level, prioritas, dan aturan siklus event (Technical Spec bagian 4, Logbook KPI UC2).
+
+priority: [D09, D02, D04, D06, D01, D05, D10]   # paling atas menang; hanya satu kode dikirim
+
+levels:
+  D01: A-02
+  D05: A-02
+  D06: A-02
+  D10: A-02
+  D02: A-03
+  D04: A-03
+  D09: A-03
+  # Kamera depan: USULAN, belum disepakati HSE GMF (pertanyaan terbuka #4). Nonaktif secara default.
+  F01: A-02
+  F02: A-03
+  F03: A-03
+
+front_events_enabled: false
+
+A02_cooldown_s: 20         # kode A-02 yang sama tidak dikirim ulang dalam 20 s
+A03_repeat_buzzer_s: 1.0   # buzzer berulang selama kondisi A-03 aktif
+end_hysteresis_s: 1.5      # kondisi harus hilang 1,5 s sebelum event ditutup
+escalation_enabled: false  # TIDAK ADA eskalasi otomatis selama uji KPI
+
+# Saat kode prioritas lebih tinggi muncul ketika event lain terbuka:
+#   "switch" -> tutup event lama (end) dan buka event baru (start)
+preempt_policy: switch

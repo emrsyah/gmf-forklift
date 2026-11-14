@@ -1,0 +1,49 @@
+# Kalibrasi + parameter kamera depan (milestone L9).
+# Blok `camera` ditimpa oleh tools/calibrate_camera.py (blok lain dipertahankan).
+# Blok `mount` diukur manual di forklift / meja uji (lihat docs/FRONT_CAMERA.md).
+# Fase 2 (Jetson): kalibrasi ulang dengan kamera dan posisi pasang sebenarnya.
+
+camera:
+  calibrated: false          # false = K placeholder (HFOV ~70 deg @1280x720); jarak hanya perkiraan kasar
+  image_size: [1280, 720]    # [w, h] resolusi saat kalibrasi; K diskalakan otomatis ke ukuran frame
+  fisheye: false             # true -> cv2.fisheye (dist = 4 koefisien k1..k4)
+  K:
+    - [914.0, 0.0, 640.0]
+    - [0.0, 914.0, 360.0]
+    - [0.0, 0.0, 1.0]
+  dist: [0.0, 0.0, 0.0, 0.0, 0.0]   # normal: k1,k2,p1,p2[,k3...]; fisheye: k1..k4
+  rms_px: null               # error reprojeksi hasil kalibrasi
+
+mount:
+  h_m: 1.20                  # tinggi pusat lensa dari lantai (m) — UKUR
+  theta_deg: 10.0            # sudut tunduk kamera di bawah horizontal (deg, + = menunduk) — UKUR
+
+distance:
+  # Cadangan tinggi kotak: d ~= fy * H / tinggi_kotak_px. Hanya untuk kelas dengan tinggi diketahui.
+  class_height_m:
+    person: 1.65
+  bottom_margin_px: 4        # kotak menyentuh tepi bawah (<= margin) -> titik kaki tidak andal
+  min_ray_angle_deg: 0.5     # sinar ke titik kaki harus di bawah horizon minimal sekian derajat
+  max_distance_m: 40.0       # di atas ini dianggap tidak valid (None)
+
+motion:
+  min_samples: 4             # minimal sampel jarak di jendela untuk menghitung kecepatan
+  min_span_s: 0.4            # rentang waktu minimal sampel di jendela
+  history_s: 3.0             # riwayat per track yang disimpan
+  track_stale_s: 2.0         # track yang tidak terlihat selama ini dibuang
+
+classes:
+  # Nama kelas model -> nama kelas kita. COCO tidak punya kelas hangar; alias ini hanya sementara
+  # sampai bobot front_best (Tech Spec bag. 6) tersedia.
+  aliases:
+    airplane: aircraft_part
+    truck: gse_vehicle
+    bus: gse_vehicle
+    car: gse_vehicle
+  obstacle_classes: [forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle]
+  obstacle_conf: 0.35
+  danger_object_classes: [aircraft_part, gse_vehicle]   # F-03 (usulan)
+
+zones:
+  # Kode USULAN (belum disepakati HSE GMF, pertanyaan terbuka #4). Urutan = prioritas antar kode F.
+  priority: [F02, F03, F01]

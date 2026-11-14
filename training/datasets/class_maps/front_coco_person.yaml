@@ -1,0 +1,22 @@
+# COCO 2017 (subset gambar berisi person) -> kelas kamera depan.
+# COCO melabel semua 80 kelas secara lengkap, jadi kendaraan/pesawat ikut dipetakan supaya tidak
+# dilatih sebagai latar. Pemetaan kendaraan = alias runtime di configs/front_camera.yaml
+# (car/truck/bus -> gse_vehicle, airplane -> aircraft_part): gse_vehicle = kendaraan bermotor selain forklift.
+source: coco_person
+
+map:
+  person: [person]
+  car: [gse_vehicle]
+  truck: [gse_vehicle]
+  bus: [gse_vehicle]
+  airplane: [aircraft_part]
+
+labelled: [person, gse_vehicle, aircraft_part]
+subsets: []
+
+derive:
+  teacher_fill: []           # sudah dilabel lengkap
+
+group:
+  regex: []                  # foto Flickr independen; dHash menangkap duplikat
+  whole_source: false

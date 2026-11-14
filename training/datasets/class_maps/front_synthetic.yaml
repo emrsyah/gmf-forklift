@@ -1,0 +1,21 @@
+# Placeholder data sintetis (Isaac Sim / Omniverse Replicator, Spesifikasi & Strategi Data bag. B) atau
+# rekaman tim yang sudah dilabel di CVAT. Diharapkan sudah memakai nama kelas kita (classes.txt).
+source: synthetic
+
+map:
+  person: [person]
+  forklift: [forklift]
+  pallet_jack: [pallet_jack]
+  gse_vehicle: [gse_vehicle]
+  aircraft_part: [aircraft_part]
+  ladder_stand: [ladder_stand]
+  obstacle: [obstacle]
+
+labelled: [person, forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle]
+subsets: []
+
+derive:
+  teacher_fill: []
+
+group:
+  whole_source: true          # semua ke train lewat split.fixed '^synthetic:'

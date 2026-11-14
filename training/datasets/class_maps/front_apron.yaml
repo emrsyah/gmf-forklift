@@ -1,0 +1,74 @@
+# Apron Dataset (AIT, ACCV-W 2022) -> kelas kamera depan.
+# 43 kategori "ApronFine" (id 0..42, nama dari scripts/aprondataset/datasets.py upstream; urutan nama ada di
+# sources_front.yaml -> apron.names). SEMUA 43 nama harus muncul di bawah: dipetakan atau [] (dibuang);
+# tests/test_front_dataset_convert.py memeriksa ini.
+source: apron
+
+map:
+  # --- orang
+  Person: [person]
+  Person Wearing Reflective Vests: [person]
+  # --- forklift (kelas sendiri, bukan gse_vehicle)
+  Forklift: [forklift]
+  # --- pesawat (aircraft_part di hangar = badan/sayap/engine/roda; Apron melabel pesawat utuh)
+  Business Jet: [aircraft_part]
+  Cargo Airplane: [aircraft_part]
+  Common Aircraft: [aircraft_part]
+  Passenger Jet: [aircraft_part]
+  Helicopter: [aircraft_part]
+  Rescue Helicopter: [aircraft_part]
+  # --- kendaraan bandara / GSE (Tech Spec bag. 6: "kategori kendaraan bandara digabung")
+  Airside Safety Vehicle: [gse_vehicle]
+  Ambulance Vehicle: [gse_vehicle]
+  Cleaning Vehicle: [gse_vehicle]
+  Container Trolley: [gse_vehicle]
+  Container Trolley Type A: [gse_vehicle]
+  Container Trolley Type B: [gse_vehicle]
+  Container Trolley Type C: [gse_vehicle]
+  Conveyer Vehicle: [gse_vehicle]
+  Fire Truck: [gse_vehicle]
+  Loading Ramp: [gse_vehicle]
+  Loading Vehicle: [gse_vehicle]
+  Other Vehicles: [gse_vehicle]
+  Passenger Bus: [gse_vehicle]
+  Passenger Stairway: [gse_vehicle]      # tangga penumpang bermotor/ditarik = GSE, bukan ladder_stand hangar
+  Sanitary Truck: [gse_vehicle]
+  Snowplow: [gse_vehicle]
+  Standard Car: [gse_vehicle]
+  Standard Truck: [gse_vehicle]
+  Tank Truck: [gse_vehicle]
+  Taxiing Vehicle: [gse_vehicle]
+  Tow Vehicle: [gse_vehicle]
+  Tractor: [gse_vehicle]
+  Transport Vehicle: [gse_vehicle]
+  # --- rintangan di lantai
+  Traffic Barrier: [obstacle]
+  Traffic Cone: [obstacle]
+  Traffic Cone - Off: [obstacle]
+  Traffic Cone - On: [obstacle]
+  Traffic Cone - Standard: [obstacle]
+  Transport Container: [obstacle]        # ULD/kontainer kargo di lantai apron
+  # --- dibuang (marka/rambu bukan objek tabrakan; "Other Objects" tidak terdefinisi)
+  Other Objects: []
+  Pedestrian Crossing: []
+  Speed Limit 30: []
+  Traffic Sign: []
+  Warning Sign: []
+
+labelled: [person, forklift, gse_vehicle, aircraft_part, obstacle]
+subsets: []
+
+derive:
+  teacher_fill: []
+
+group:
+  # Apron direkam dashcam sebagai SEKUENS (5 fps / 30 fps) dan split resmi per sekuens. Penamaan file
+  # rilis belum diketahui (butuh registrasi). Stem dari front_sources.rel_stem = "<subfolder>__<nama>":
+  #   1) ada subfolder per sekuens -> grup = subfolder
+  #   2) nama "<sekuens>_<nomor frame>" -> grup = bagian sebelum nomor frame
+  # Jika tidak ada yang cocok -> semua ke train (on_no_match) + peringatan. SESUAIKAN setelah unduh.
+  regex:
+    - '^(?P<g>.+)__'
+    - '^(?P<g>.+?)[_-]\d+$'
+  on_no_match: train
+  whole_source: false

@@ -1,0 +1,58 @@
+# Training YOLO kabin (Model 3) — resep Tech Spec bag. 5:
+#   yolo detect train model=yolo11n.pt data=training/datasets/cabin.yaml imgsz=640 epochs=150 patience=30
+#     batch=32 hsv_h=0 hsv_s=0 hsv_v=0.4 degrees=10 translate=0.1 scale=0.4 fliplr=0.5 mosaic=1.0
+#     close_mosaic=15 seed=0
+# CLI train_cabin.py dapat menimpa epochs/batch/imgsz/device/fraction/workers (smoke test).
+
+model: models/weights/yolo11n.pt       # bobot awal COCO (diunduh Ultralytics jika tidak ada)
+data: training/datasets/cabin.yaml
+project: training/runs
+name: cabin_v1
+
+train:
+  imgsz: 640
+  epochs: 150
+  patience: 30
+  batch: 32
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.4
+  degrees: 10.0
+  translate: 0.1
+  scale: 0.4
+  fliplr: 0.5
+  mosaic: 1.0
+  close_mosaic: 15
+  seed: 0
+  deterministic: true
+  workers: 8
+  device: null                          # null = otomatis
+  cache: false                          # "ram" / "disk" mempercepat di RunPod jika memori cukup
+  plots: true
+
+export:
+  format: onnx
+  imgsz: 640
+  opset: 17                             # ONNX Runtime 1.16+ dan TensorRT 8.6 (JetPack 6) mendukung opset 17
+  dynamic: false
+  simplify: true
+  # nms tidak di-set (None) = output mentah (1, 4+nc, N) yang diharapkan src/backends/ort_backend.py.
+  # Catatan: di Ultralytics 8.4.x nms=False berarti "NMS-free head" (end2end), BUKAN output mentah.
+  check_conf: 0.25                      # conf untuk uji asap ONNX via src/backends/ort_backend.py
+  weights_dir: models/weights
+  weights_name: cabin_best              # -> models/weights/cabin_best.pt / .onnx
+
+gate:
+  # Gerbang L5 (CLAUDE.md bag. 8). Di sini dihitung pada split TEST DATA PUBLIK, bukan pada
+  # rekaman orang di luar tim -> hanya indikasi, bukan kelulusan L5.
+  split: test
+  map50_min: 0.85
+  recall_conf: 0.35                     # sesuai Tech Spec bag. 5 (catatan: runtime D10_ppe.conf = 0.40, D06 = 0.35)
+  predict_batch: 16
+  match_iou: 0.5                        # IoU minimal prediksi-label agar dihitung terdeteksi
+  no_vest_iou: null                     # null = pakai configs/thresholds.yaml D10_ppe.vest_iou_max (aturan runtime)
+  thresholds_config: configs/thresholds.yaml
+  recall_min:
+    phone: 0.90
+    head_no_helmet: 0.90
+    no_vest: 0.90                       # torso tanpa vest (turunan, bukan kelas model)

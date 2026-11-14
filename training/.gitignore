@@ -1,0 +1,9 @@
+# Hasil training Ultralytics (bobot, plot) - jangan di-commit (aturan kerja 9)
+runs/
+*.pt
+*.onnx
+*.engine
+# cabin.yaml dibuat ulang oleh build_cabin_dataset.py dan berisi path absolut mesin lokal
+datasets/cabin.yaml
+datasets/*.cache
+__pycache__/

@@ -1,0 +1,12 @@
+# Fase 1 (laptop). Python 3.10 (sama dengan JetPack 6).
+# torch CPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+opencv-python>=4.10
+mediapipe>=0.10.20
+ultralytics>=8.3
+onnx>=1.16
+onnxruntime>=1.18
+numpy>=1.26
+pyyaml>=6.0
+paho-mqtt>=2.0
+lap>=0.5
+pytest>=8.0

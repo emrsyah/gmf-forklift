@@ -1,0 +1,23 @@
+# COCO 2017 (subset gambar berisi cell phone) -> kelas kabin.
+# Upstream memakai 80 nama kelas COCO; hanya cell phone yang dipetakan.
+source: coco_phone
+
+map:
+  cell phone: [phone]
+
+# COCO melabel cell phone dan person secara lengkap, tetapi tidak punya helm/kepala/rompi.
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  # Kepala dari keypoint wajah -> head_no_helmet. Risiko: topi/helm sepeda ikut jadi head_no_helmet
+  # (jarang di gambar ponsel). Tanpa ini, ribuan kepala terbuka akan dilatih sebagai latar.
+  head_from_pose: true
+  # Tidak memakai fallback kotak person: di COCO banyak "person" yang hanya tangan/lengan terpotong;
+  # orang yang badannya terlihat sudah ditangkap pose.
+  torso_from_person: []
+
+group:
+  regex: []                    # tiap foto Flickr independen; dHash menangkap duplikat
+  whole_source: false

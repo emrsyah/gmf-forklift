@@ -1,0 +1,30 @@
+# LOCO (Logistics Objects in Context, TU Munich) -> kelas kamera depan.
+# Kategori upstream (id COCO 3, 5, 7, 10, 11): small_load_carrier, forklift, pallet, stillage, pallet_truck.
+source: loco
+
+map:
+  forklift: [forklift]
+  pallet_truck: [pallet_jack]
+  # Sengaja TIDAK dipetakan ke obstacle: mayoritas palet/SLC/stillage LOCO ada di rak (sub5 saja ~10 ribu
+  # palet), bukan rintangan di lantai jalur forklift. Memetakannya akan mengajari model bahwa rak = rintangan.
+  # Jika nanti ingin palet di lantai sebagai obstacle, buat sub-label lewat koreksi CVAT.
+  pallet: []
+  small_load_carrier: []
+  stillage: []
+
+labelled: [forklift, pallet_jack]
+subsets: []
+
+derive:
+  # LOCO tidak melabel orang walaupun ada orang di gambar gudang -> isi dengan teacher COCO (pseudo).
+  # gse_vehicle sengaja tidak diisi: di gudang, teacher COCO sering menyebut forklift/pallet truck "truck".
+  teacher_fill: [person]
+
+group:
+  # Stem dari front_sources.loco_member_and_stem: "subset-5__2020-03-05_1__RealSense__color__0__<ts>"
+  # Grup = lokasi + sesi rekaman; subset-1 tidak punya folder sesi -> grup = lokasi.
+  regex:
+    - '^(?P<g>subset-\d+__\d{4}-\d{2}-\d{2}_\d+)__'
+    - '^(?P<g>subset-\d+)__'
+  on_no_match: train
+  whole_source: false

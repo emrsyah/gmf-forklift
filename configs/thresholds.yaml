@@ -1,0 +1,112 @@
+# Ambang semua indikator D-xx. Nilai awal dari Technical Spec bagian 4.
+# Semua nilai di sini adalah NILAI AWAL dan harus di-tune dengan replay harness (eval/replay_eval.py).
+
+signals:
+  median_frames: 3            # median filter per sinyal (Tech Spec bag. 3)
+  closed_openness_max: 0.30   # eye_closed jika openness < ini ...
+  closed_blink_min: 0.50      # ... DAN blendshape blink > ini
+  closed_logic: "and"         # "and" (sesuai spec) | "or" | "openness_only" | "blink_only"
+  # Hysteresis (bukan dari spec; null = mati). Rekaman webcam 2026-11-14: pejam santai berayun di
+  # openness 0.21-0.34 -> eye_closed putus-sambung -> D-02 baru aktif 2.7 s setelah mata tertutup.
+  # Setelah tertutup, tetap tertutup selama openness < exit DAN blink > exit (mata terbuka: ~0.8-1.0 / ~0.2).
+  closed_openness_exit: 0.45
+  closed_blink_exit: 0.40
+  mouth_open_jaw_min: 0.60
+  face_score_min: 0.50
+  # eye_valid: rumus asli di Tech Spec terpotong saat ekspor PDF. Asumsi kita:
+  # mata dianggap tidak bisa dibaca jika kepala menunduk terlalu dalam / menoleh terlalu jauh.
+  eye_valid_pitch_down_max_deg: 25   # pitch < -25 -> eye_valid False (lihat catatan skenario 7 vs 9)
+  eye_valid_yaw_max_deg: 45
+
+calibration:
+  duration_s: 5.0
+  min_frames: 30
+  max_ear_std: 0.04           # tolak kalibrasi jika EAR terlalu bervariasi
+  max_pose_std_deg: 5.0
+  population_ear_baseline: 0.28   # fallback jika belum dikalibrasi (EAR mata terbuka rata-rata populasi)
+  max_attempts: 3             # setelah gagal sekian kali -> baseline populasi (hotkey c untuk ulang)
+  max_abs_roll_deg: 15        # tolak pose "lurus" yang miring/menoleh/menunduk (relatif kamera)
+  max_abs_yaw_deg: 25
+  max_abs_pitch_deg: 35       # longgar: kamera kabin dipasang di bawah mata -> pitch mentah tidak nol
+
+D01_drowsy:
+  window_s: 30
+  perclos_min: 0.20
+  slow_blink_s: [0.4, 1.4]
+  slow_blink_count: 4
+  min_valid_ratio: 0.7
+  min_window_fill_s: 10       # jangan hitung PERCLOS sebelum ada minimal sekian detik data
+
+D02_long_closure:
+  closed_s: 1.5
+  face_gap_tolerance_s: 0.3
+
+D04_head_drop:
+  nod_drop_deg: 15
+  nod_return_deg: 8
+  nod_max_s: 2.0
+  # Spec: 2. Diganti 3 (disetujui 2026-11-14): uji live webcam -> 2 lirikan ke bawah (keyboard/layar)
+  # dalam 5 s memicu D-04 A-03 palsu (risiko K4 #2). Skenario 18 (30 s mengangguk) tetap >= 3 anggukan.
+  nod_count: 3
+  nod_window_s: 30
+  # null = sesuai spec: D-04 tetap aktif selama >= nod_count anggukan masih di jendela 30 s
+  #   (buzzer A-03 bisa berbunyi ~27 s setelah anggukan berhenti, event bisa terbawa ke skenario 19).
+  # Opsi mitigasi: mis. 5.0 -> aktif hanya jika anggukan terakhir <= 5 s lalu.
+  # Diaktifkan 5.0 (disetujui 2026-11-14): uji live -> buzzer A-03 berlanjut ~20 s setelah anggukan berhenti.
+  nod_active_hold_s: 5.0
+  roll_deg: 25
+  roll_s: 1.5
+
+D05_distraction:
+  yaw_deg: 30
+  pitch_down_deg: 25
+  continuous_s: 1.5
+  window_s: 6
+  ratio: 0.5
+  min_window_fill_s: 3.0      # akumulasi hanya dihitung setelah jendela berisi minimal sekian detik
+  require_eyes_open: false    # Spesifikasi&Data: "dengan mata terbuka"; Tech Spec: tanpa syarat. Default = Tech Spec.
+  # Mitigasi risiko K4 skenario 18 (anggukan terbaca D-05 duluan). OFF = sesuai spec.
+  pitch_only_extra_hold_s: 0.0  # tambahan waktu tahan jika off-road HANYA karena pitch (mis. 1.0)
+  # Bukan dari spec, dari rekaman webcam 2026-11-14 (skenario 9):
+  # - lihat pangkuan biasa: pitch berayun -24..-28 di sekitar ambang 25 -> off-road putus-sambung.
+  #   Setelah off-road, ambang dilonggarkan sebanyak ini sampai kepala benar-benar kembali.
+  hysteresis_deg: 5.0
+  # - lihat pangkuan dalam: wajah HILANG dari MediaPipe -> D-05 tidak pernah aktif.
+  #   Jika wajah hilang tepat setelah off-road (dan kamera tidak terhalang), status off-road
+  #   terakhir dipertahankan maksimal sekian detik. null = mati (spec).
+  face_lost_offroad_hold_s: 5.0
+
+D06_phone:
+  # Spec awal 0.35. Di-tune pada split VALIDASI cabin_v0 (data publik, 137 ponsel):
+  #   conf 0.35 -> recall 0.21, precision 0.45, FP 35 | conf 0.50 -> recall 0.18, precision 0.60, FP 17
+  # Kembalikan ke 0.35 (atau tune ulang) setelah model kabin dilatih ulang di GPU / data kabin.
+  conf: 0.50
+  window_s: 1.0
+  ratio: 0.6
+
+D09_camera_block:
+  # Spec awal std 10 / lap 20. Rekaman webcam 2026-11-14: telapak tangan dengan cahaya bocor di tepi
+  # -> mean ~40, std ~18, lap_var 10-50 (scene normal: std ~65-80, lap_var ~600-950) -> spec tidak pernah aktif.
+  # Tetap mensyaratkan wajah tidak terdeteksi. Kalibrasi ulang dengan kamera NIR di Jetson.
+  std_max: 25
+  lap_var_max: 60
+  mean_min: 15
+  mean_max: 240
+  hold_s: 1.0
+  downscale_px: 160           # frame diperkecil dulu agar murah dihitung
+
+D10_ppe:
+  conf: 0.40
+  window_s: 3.0
+  ratio: 0.7
+  vest_iou_max: 0.3           # torso tanpa vest = tidak ada vest dengan overlap >= ini
+
+vehicle:
+  require_moving: false       # true di operasi nyata; false saat uji KPI (pertanyaan terbuka #2)
+
+front:
+  person_conf: 0.35
+  approach_speed_mps: 0.3     # mendekat jika jarak mengecil > ini
+  speed_window_s: 1.0
+  warning_zone_m: 6.0         # F-01 (usulan, belum disepakati HSE GMF)
+  danger_zone_m: 3.0          # F-02 / F-03 (usulan)

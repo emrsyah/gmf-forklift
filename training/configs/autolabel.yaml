@@ -1,0 +1,20 @@
+# Auto-label (opsional) dengan YOLO-World — kotak awal untuk dikoreksi di CVAT / Label Studio.
+# Tech Spec bag. 7 langkah 3. Hasil auto-label TIDAK boleh dipakai sebagai label final tanpa koreksi.
+
+model: data/weights/yolov8s-worldv2.pt   # diunduh otomatis dari model_url (rilis GitHub, tanpa token)
+model_url: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s-worldv2.pt
+imgsz: 640
+conf: 0.25
+iou: 0.5
+device: null
+
+# prompt teks -> kelas kabin. Beberapa prompt boleh menunjuk kelas yang sama.
+prompts:
+  phone: [cell phone, smartphone, mobile phone in hand]
+  helmet: [hard hat, safety helmet]
+  head_no_helmet: [human head without helmet, bare head]
+  vest: [high visibility safety vest, reflective vest]
+  torso: [person upper body torso]
+
+# Mode --merge: kotak baru dibuang jika IoU >= ini dengan kotak kelas sama yang sudah ada
+merge_iou: 0.5

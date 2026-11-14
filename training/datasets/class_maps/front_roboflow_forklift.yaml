@@ -1,0 +1,28 @@
+# Template sumber Roboflow Universe forklift/person (OPSIONAL, butuh ROBOFLOW_API_KEY).
+# Ganti/isi kunci "map" dengan nama kelas di data.yaml dataset yang dipilih (nama yang tidak ada di
+# upstream hanya memicu peringatan). Kelas yang benar-benar dilabel dataset itu -> "labelled".
+source: roboflow_forklift
+
+map:
+  forklift: [forklift]
+  Forklift: [forklift]
+  person: [person]
+  Person: [person]
+  pallet jack: [pallet_jack]
+  pallet_jack: [pallet_jack]
+  pallet truck: [pallet_jack]
+  cone: [obstacle]
+  traffic cone: [obstacle]
+  ladder: [ladder_stand]
+
+labelled: [forklift, person]
+subsets: []
+
+derive:
+  teacher_fill: [gse_vehicle]   # person sudah dilabel; isi kendaraan lain dari teacher COCO
+
+group:
+  # Ekspor Roboflow: "<nama asli>_jpg.rf.<hash>.jpg" -> salinan augmentasi satu gambar = satu grup
+  regex:
+    - '^(?P<g>.+?)_(?:jpg|jpeg|png)\.rf\.'
+  whole_source: false

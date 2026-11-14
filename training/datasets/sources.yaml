@@ -1,0 +1,91 @@
+# Sumber dataset publik untuk model YOLO kabin (Model 3, Tech Spec bag. 5).
+# Semua sumber di sini bisa diunduh TANPA token. Lisensi: lihat LICENSES.md.
+#
+# Field umum:
+#   enabled      : ikut di-download/di-build atau tidak
+#   type         : hf_yolo_files | hf_coco_zip | hf_yolo_zip | coco_ultralytics | roboflow
+#   class_map    : file di training/datasets/class_maps/
+#   max_images   : batas gambar untuk build penuh (null = semua). --limit (smoke) menimpa ini.
+#   download_mb  : perkiraan ukuran unduhan penuh (informasi saja)
+
+sources:
+  # Gabungan 2 dataset Kaggle: ds1 = andrewmvd/hard-hat-detection (helmet, head),
+  # ds2 = construction-site-safety Roboflow (helmet, vest). Format YOLO per file.
+  ppe_jhboyo:
+    enabled: true
+    type: hf_yolo_files
+    repo: jhboyo/ppe-dataset
+    revision: main
+    splits: [train, val, test]          # folder upstream; split kita dibuat ulang (split.py)
+    images_dir: images
+    labels_dir: labels
+    names: [helmet, head, vest]
+    class_map: ppe_jhboyo.yaml
+    max_images: 6000
+    download_mb: 3000
+
+  # Roboflow "ppe-detection-1" v2 (3x augmentasi per gambar asli -> wajib split per grup).
+  ppe_vincent:
+    enabled: true
+    type: hf_yolo_files
+    repo: VincentGOURBIN/ppe-detection
+    revision: main
+    splits: [train, valid, test]
+    images_dir: images
+    labels_dir: labels
+    names: [helmet, no-helmet, no-vest, person, vest]
+    class_map: ppe_vincent.yaml
+    max_images: null
+    download_mb: 220
+
+  # Roboflow "construction-site-safety" v1 lewat roboflow2huggingface (zip COCO json).
+  construction_keremberke:
+    enabled: true
+    type: hf_coco_zip
+    repo: keremberke/construction-safety-object-detection
+    revision: main
+    zips: [data/train.zip, data/valid.zip, data/test.zip]
+    class_map: construction_keremberke.yaml
+    max_images: null
+    download_mb: 28
+
+  # COCO 2017: gambar yang berisi "cell phone" (kelas 67). Label YOLO dari rilis Ultralytics,
+  # gambar diunduh satu per satu dari images.cocodataset.org (tanpa token).
+  coco_phone:
+    enabled: true
+    type: coco_ultralytics
+    labels_zip_url: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip
+    image_url_template: http://images.cocodataset.org/{split}/{name}
+    splits: [train2017, val2017]
+    require_class: 67                   # cell phone
+    min_box_area_frac: 0.0005           # buang HP yang terlalu kecil (luas kotak / luas gambar)
+    class_map: coco_phone.yaml
+    max_images: null                    # ~4.800 gambar
+    download_mb: 900
+
+  # Foto ponsel di tangan (kecil, 57 gambar). Satu sesi -> satu grup.
+  # NONAKTIF: cek visual menunjukkan sebagian kotak tidak pas dengan ponsel (mis. kotak di pergelangan
+  # tangan / tepi keyboard). Aktifkan hanya setelah label dikoreksi di CVAT.
+  cellphone_mahek:
+    enabled: false
+    type: hf_yolo_zip
+    repo: MahekDharod/cellphone-detection-dataset
+    revision: main
+    zip: annotated_data.zip
+    names_file: annotated_data/classes.txt
+    class_map: cellphone_mahek.yaml
+    max_images: null
+    download_mb: 75
+
+  # Contoh sumber Roboflow Universe (OPSIONAL). Hanya dipakai jika env ROBOFLOW_API_KEY ada.
+  # Isi workspace/project/version sesuai dataset yang dipilih, lalu buat class_map-nya.
+  roboflow_example:
+    enabled: false
+    type: roboflow
+    workspace: CHANGE_ME
+    project: CHANGE_ME
+    version: 1
+    export_format: yolov8
+    class_map: roboflow_example.yaml
+    max_images: null
+    download_mb: null
