@@ -17,6 +17,22 @@ levels:
 
 front_events_enabled: false
 
+# Teks penjelasan untuk banner alert di layar (overlay). Tidak dikirim di event JSON.
+labels:
+  D01: "Kantuk - kedip lambat / mata sering tertutup"
+  D02: "Microsleep - mata tertutup terus >= 1,5 s"
+  D04: "Kepala terkulai - mengangguk / kepala miring"
+  D05: "Pandangan lepas dari jalan (menoleh / menunduk)"
+  D06: "Memakai ponsel"
+  D09: "Kamera terhalang"
+  D10: "APD tidak lengkap - helm / rompi"
+  F01: "Orang di zona peringatan dan mendekat"
+  F02: "Orang di zona bahaya"
+  F03: "Kendaraan / pesawat di zona bahaya"
+level_labels:
+  A-02: "SEDANG - buzzer sekali"
+  A-03: "BERAT - buzzer berulang"
+
 A02_cooldown_s: 20         # kode A-02 yang sama tidak dikirim ulang dalam 20 s
 A03_repeat_buzzer_s: 1.0   # buzzer berulang selama kondisi A-03 aktif
 end_hysteresis_s: 1.5      # kondisi harus hilang 1,5 s sebelum event ditutup

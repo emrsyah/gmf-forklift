@@ -51,8 +51,15 @@ def draw_cabin(state, pipeline, fps: float, open_event=None) -> np.ndarray:
     # banner level
     if open_event is not None:
         col = COL.get(open_event.level, COL["A-02"])
-        cv2.rectangle(img, (0, h - 40), (w, h), col, -1)
-        _txt(img, f"{open_event.code}  {open_event.level}", 10, h - 12, COL["txt"], 0.9)
+        ev_cfg = getattr(pipeline.decision, "c", {}) or {}
+        what = ev_cfg.get("labels", {}).get(open_event.code, "")
+        lvl = ev_cfg.get("level_labels", {}).get(open_event.level, "")
+        cv2.rectangle(img, (0, h - 64), (w, h), col, -1)
+        code = open_event.code.replace("D", "D-", 1) if open_event.code.startswith("D") else open_event.code
+        fg = (0, 0, 0) if open_event.level == "A-02" else (255, 255, 255)   # kontras di kuning / merah
+        cv2.putText(img, f"{code}  {what}", (10, h - 36), cv2.FONT_HERSHEY_SIMPLEX, 0.75, fg, 2, cv2.LINE_AA)
+        cv2.putText(img, f"{open_event.level}  {lvl}", (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, fg, 1,
+                    cv2.LINE_AA)
     else:
         cv2.rectangle(img, (0, h - 6), (w, h), COL["ok"], -1)
     return img
