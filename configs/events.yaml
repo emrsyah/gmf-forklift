@@ -29,6 +29,14 @@ labels:
   F01: "Orang di zona peringatan dan mendekat"
   F02: "Orang di zona bahaya"
   F03: "Kendaraan / pesawat di zona bahaya"
+short_labels:              # nama pendek di panel indikator overlay
+  D01: "Kantuk"
+  D02: "Microsleep"
+  D04: "Kepala terkulai"
+  D05: "Pandangan lepas"
+  D06: "Ponsel"
+  D09: "Kamera tertutup"
+  D10: "APD"
 level_labels:
   A-02: "SEDANG - buzzer sekali"
   A-03: "BERAT - buzzer berulang"

@@ -5,7 +5,7 @@ Contoh:
   python -m src.main --source webcam --simulate-nir
   python -m src.main --source path/ke/video.mp4 --no-show
   python -m src.main --source webcam --fps-only          # L1: hanya buka kamera + FPS
-Hotkey jendela: q = keluar, c = kalibrasi ulang, p = pakai baseline populasi.
+Hotkey jendela: q = keluar, c = kalibrasi ulang, p = pakai baseline populasi, d = panel debug (angka mentah).
 """
 from __future__ import annotations
 
@@ -88,6 +88,7 @@ def main(argv=None):
 
     fps, n, t0 = 0.0, 0, time.monotonic()
     last = None
+    debug = False
     try:
         with src:
             for frame in src:
@@ -107,7 +108,7 @@ def main(argv=None):
                 el = time.monotonic() - t0
                 if el >= 1.0:
                     fps, n, t0 = n / el, 0, time.monotonic()
-                vis = draw_cabin(st, pipe, fps, pipe.decision.open) if (show or recorder) else None
+                vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) if (show or recorder) else None
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
                 if show:
@@ -119,6 +120,8 @@ def main(argv=None):
                         pipe.recalibrate()
                     if k == ord("p"):
                         pipe.calibration.set_population()
+                    if k == ord("d"):
+                        debug = not debug
                 if a.max_frames and frame.index + 1 >= a.max_frames:
                     break
     finally:
