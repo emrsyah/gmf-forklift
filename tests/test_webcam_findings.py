@@ -64,6 +64,16 @@ def test_d01_uses_strict_closure_so_hysteresis_does_not_create_slow_blinks():
     assert ind.info["slow_blinks"] >= 4
 
 
+def test_long_closure_early_in_session_sends_D02_not_D01():
+    """Uji live: 12 s setelah mulai, pejam terus 3 s -> event pertama harus D-02 (bukan D-01 dari PERCLOS)."""
+    from tests.synth import run_system, starts
+    tl = Timeline().opened(10).closed(3).opened(5)
+    codes = [e["code"] for e in starts(run_system(tl)[0])]
+    assert codes == ["D02"]
+    old = thresholds({"D01_drowsy": {"perclos_full_window": False}})
+    assert "D01" in [e["code"] for e in starts(run_system(tl, old)[0])]   # perilaku lama: D-01 palsu
+
+
 # ------------------------------------------------------------------ D-09 tangan dengan cahaya bocor
 def test_leaky_palm_cover_is_blocked_but_normal_scene_is_not():
     cfg = TH["D09_camera_block"]

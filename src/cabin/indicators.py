@@ -141,7 +141,12 @@ class D01Drowsy(Indicator):
         valid_ratio = self.win.weighted_mean(lambda v: v[0])
         valid_time = sum(d for _, d, v in self.win.q if v[0])
         closed_time = sum(d for _, d, v in self.win.q if v[1])
-        perclos = closed_time / valid_time if valid_time > 0 else 0.0
+        denom = valid_time
+        if self.c.get("perclos_full_window", True):
+            # penyebut minimal = jendela penuh x rasio valid minimum: jendela yang belum terisi (awal sesi)
+            # tidak menggelembungkan PERCLOS -> satu pejaman 2 s tidak memicu D-01 sebelum D-02.
+            denom = max(valid_time, self.c.get("window_s", 30) * self.c.get("min_valid_ratio", 0.7))
+        perclos = closed_time / denom if denom > 0 else 0.0
         slow = len(self.closures)
         enough = span >= self.c.get("min_window_fill_s", 10)
         self.active = bool(enough and valid_ratio >= self.c.get("min_valid_ratio", 0.7)

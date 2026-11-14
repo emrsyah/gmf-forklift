@@ -63,7 +63,7 @@ def test_d01_normal_blinks_do_not_trigger():
 
 def test_d01_perclos_trigger():
     tl = Timeline()
-    for _ in range(12):  # 25% waktu tertutup, pejaman 0,3 s (bukan kedip lambat)
+    for _ in range(25):  # 25% waktu tertutup selama 30 s, pejaman 0,3 s (bukan kedip lambat)
         tl.opened(0.9).closed(0.3)
     assert run_indicator(D01Drowsy(TH["D01_drowsy"]), tl)[-1]
 

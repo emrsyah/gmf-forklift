@@ -39,6 +39,9 @@ D01_drowsy:
   # "strict" = mata tertutup tanpa hysteresis (signals.closed_*_exit). Uji live 2026-11-14: dengan
   # hysteresis kedip normal 0.27 s memanjang jadi 0.40 s = "kedip lambat" -> D-01 palsu. "hysteresis" = lama.
   closed_signal: strict
+  # Uji live 2026-11-14: 10 s setelah mulai, pejam terus (skenario 5) mengirim D-01 0,3 s SEBELUM D-02
+  # karena PERCLOS = tertutup / waktu valid yang baru ~10 s. true = penyebut minimal window_s x min_valid_ratio.
+  perclos_full_window: true
 
 D02_long_closure:
   closed_s: 1.5
