@@ -117,7 +117,10 @@ class D01Drowsy(Indicator):
         dt = self._dt(x.ts_ms)
         s = x.sig
         valid = s.face_present and s.eye_valid
-        closed = valid and s.eye_closed
+        eye = s.eye_closed
+        if self.c.get("closed_signal", "strict") == "strict" and s.eye_closed_strict is not None:
+            eye = s.eye_closed_strict
+        closed = valid and eye
         self.win.add(x.ts_ms, dt, (valid, closed))
 
         # deteksi kedipan lambat: durasi satu pejaman dalam [min, max]

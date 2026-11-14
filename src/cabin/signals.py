@@ -27,6 +27,9 @@ class FaceSignals:
     openness: float = 1.0         # mean EAR / ear_baseline (0 = tertutup, ~1 = terbuka normal)
     blink: float = 0.0            # max(eyeBlinkLeft, eyeBlinkRight)
     eye_closed: bool = False
+    # mata tertutup TANPA hysteresis (ambang masuk saja). None = sama dengan eye_closed.
+    # D-01 (durasi kedip / PERCLOS) memakai ini supaya kedip normal tidak memanjang jadi "kedip lambat".
+    eye_closed_strict: bool | None = None
     eye_valid: bool = False
     yaw: float = 0.0              # derajat, relatif ke baseline kalibrasi
     pitch: float = 0.0            # < 0 = menunduk
@@ -73,6 +76,16 @@ class SignalExtractor:
         self._med = {k: _Median(n) for k in self._KEYS}
         self._closed = False
 
+    def _combine(self, by_open: bool, by_blink: bool) -> bool:
+        logic = self.c.get("closed_logic", "and")
+        if logic == "and":
+            return by_open and by_blink
+        if logic == "or":
+            return by_open or by_blink
+        if logic == "blink_only":
+            return by_blink
+        return by_open
+
     def raw_values(self, obs: FaceObs) -> dict:
         lm = obs.landmarks_px
         ear_l = eye_aspect_ratio(lm[LEFT_EYE])
@@ -106,6 +119,7 @@ class SignalExtractor:
         c = self.c
         open_max = c.get("closed_openness_max", 0.30)
         blink_min = c.get("closed_blink_min", 0.50)
+        strict = self._combine(openness < open_max, v["blink"] > blink_min)
         if self._closed:
             # hysteresis: setelah tertutup, mata dianggap tetap tertutup sampai jelas terbuka lagi
             # (pejam santai berayun di sekitar ambang masuk -> run D-02 tidak terputus)
@@ -113,17 +127,7 @@ class SignalExtractor:
             ex_blink = c.get("closed_blink_exit")
             open_max = open_max if ex_open is None else ex_open
             blink_min = blink_min if ex_blink is None else ex_blink
-        closed_by_open = openness < open_max
-        closed_by_blink = v["blink"] > blink_min
-        logic = c.get("closed_logic", "and")
-        if logic == "and":
-            eye_closed = closed_by_open and closed_by_blink
-        elif logic == "or":
-            eye_closed = closed_by_open or closed_by_blink
-        elif logic == "blink_only":
-            eye_closed = closed_by_blink
-        else:
-            eye_closed = closed_by_open
+        eye_closed = self._combine(openness < open_max, v["blink"] > blink_min)
         self._closed = bool(eye_closed)
 
         eye_valid = (pitch >= -c.get("eye_valid_pitch_down_max_deg", 25)
@@ -132,7 +136,7 @@ class SignalExtractor:
         return FaceSignals(
             ts_ms=ts_ms, face_present=True,
             ear_l=v["ear_l"], ear_r=v["ear_r"], ear=ear, openness=openness, blink=v["blink"],
-            eye_closed=bool(eye_closed), eye_valid=bool(eye_valid),
+            eye_closed=bool(eye_closed), eye_closed_strict=bool(strict), eye_valid=bool(eye_valid),
             yaw=yaw, pitch=pitch, roll=roll,
             mouth_open=v["jaw"] > c.get("mouth_open_jaw_min", 0.6), jaw_open=v["jaw"],
             calibrated=self.cal.done,

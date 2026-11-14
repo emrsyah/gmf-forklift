@@ -48,6 +48,22 @@ def test_hysteresis_still_reopens_and_ignores_normal_blink():
     assert out[:3] == [True] * 3 and out[3:] == [False] * 3
 
 
+def test_d01_uses_strict_closure_so_hysteresis_does_not_create_slow_blinks():
+    """Kedip normal 0,27 s yang dipanjangkan hysteresis jadi 0,45 s tidak boleh dihitung kedip lambat D-01."""
+    from src.cabin.indicators import D01Drowsy
+    th = dict(TH["D01_drowsy"])
+    tl = Timeline().opened(2)
+    for _ in range(8):   # 8 kedip normal dalam ~24 s
+        tl.add(0.27, dict(eye_closed=True, eye_closed_strict=True)) \
+          .add(0.18, dict(eye_closed=True, eye_closed_strict=False)).opened(2.6)
+    ind = D01Drowsy(th)
+    run_indicator(ind, tl)
+    assert ind.info["slow_blinks"] == 0
+    ind = D01Drowsy(dict(th, closed_signal="hysteresis"))
+    run_indicator(ind, tl)
+    assert ind.info["slow_blinks"] >= 4
+
+
 # ------------------------------------------------------------------ D-09 tangan dengan cahaya bocor
 def test_leaky_palm_cover_is_blocked_but_normal_scene_is_not():
     cfg = TH["D09_camera_block"]

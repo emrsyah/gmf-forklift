@@ -36,6 +36,9 @@ D01_drowsy:
   slow_blink_count: 4
   min_valid_ratio: 0.7
   min_window_fill_s: 10       # jangan hitung PERCLOS sebelum ada minimal sekian detik data
+  # "strict" = mata tertutup tanpa hysteresis (signals.closed_*_exit). Uji live 2026-11-14: dengan
+  # hysteresis kedip normal 0.27 s memanjang jadi 0.40 s = "kedip lambat" -> D-01 palsu. "hysteresis" = lama.
+  closed_signal: strict
 
 D02_long_closure:
   closed_s: 1.5
