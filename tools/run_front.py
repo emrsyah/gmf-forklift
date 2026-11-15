@@ -64,7 +64,7 @@ def main(argv=None) -> int:
 
     writer = None
     jsonl = open(args.jsonl, "w", encoding="utf-8") if args.jsonl else None
-    win = "Forklift Safety AI - Front"
+    win = cfg.runtime.get("ui", {}).get("window_front", "Forklift Safety AI - Front")
     ids_by_cls: dict[str, set] = defaultdict(set)
     max_persons = 0
     n = 0

@@ -103,7 +103,11 @@ recording:
 
 ui:
   show: true
-  window: "Forklift Safety AI - Cabin"
+  # judul jendela OpenCV
+  window: "GMF AeroAsia - Forklift Safety AI - Kamera Kabin"
+  window_front: "GMF AeroAsia - Forklift Safety AI - Kamera Depan"
+  window_recorder: "GMF AeroAsia - Forklift Safety AI - Recorder Lembar A"
+  window_pose: "GMF AeroAsia - Forklift Safety AI - Cek Pose"
 
 model_versions:
   cabin: cabin_v1

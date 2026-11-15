@@ -115,7 +115,7 @@ def main(argv=None):
     mark: dict | None = None      # {"kind": "scen"/"normal", "start": t_s, "scen": dict}
     t0_ms = None
     n_rows = 0
-    win = "Recorder Lembar A"
+    win = load_yaml("configs/runtime.yaml").get("ui", {}).get("window_recorder", "Recorder Lembar A")
     try:
         with src:
             for f in src:

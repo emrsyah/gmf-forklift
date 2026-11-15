@@ -35,7 +35,7 @@ def parse_args(argv=None):
     return ap.parse_args(argv)
 
 
-def run_fps_only(src, show: bool, max_frames: int):
+def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety AI - FPS"):
     n, t0, fps = 0, time.monotonic(), 0.0
     for f in src:
         n += 1
@@ -46,7 +46,7 @@ def run_fps_only(src, show: bool, max_frames: int):
         if show:
             img = f.image.copy()
             cv2.putText(img, f"FPS {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.imshow("Forklift Safety AI - FPS", img)
+            cv2.imshow(win, img)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
         if max_frames and f.index + 1 >= max_frames:
@@ -70,7 +70,7 @@ def main(argv=None):
     src = make_source(rt["cabin"]["source"])
     if a.fps_only:
         with src:
-            run_fps_only(src, show, a.max_frames)
+            run_fps_only(src, show, a.max_frames, rt.get("ui", {}).get("window", "cabin"))
         return
 
     from src.cabin.pipeline import CabinPipeline

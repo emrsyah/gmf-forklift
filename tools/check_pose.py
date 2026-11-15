@@ -67,7 +67,7 @@ def main(argv=None):
             for i, ln in enumerate(lines):
                 cv2.putText(img, ln, (10, 25 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3)
                 cv2.putText(img, ln, (10, 25 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
-            cv2.imshow("check_pose", img)
+            cv2.imshow(rt.get("ui", {}).get("window_pose", "check_pose"), img)
             k = cv2.waitKey(1) & 0xFF
             if k == ord("q"):
                 break
