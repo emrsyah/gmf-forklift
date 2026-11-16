@@ -15,6 +15,7 @@ from .camblock import frame_stats, is_blocked
 from .face import FaceObs
 from .indicators import IndicatorInput, build_indicators
 from .signals import FaceSignals, SignalExtractor
+from .phone_crop import PhoneCrop
 from .phone_filter import PhoneFilter, face_box_from_landmarks
 from .yolo_cabin import CabinDetections, interpret
 
@@ -73,6 +74,7 @@ class CabinPipeline:
         self._last_yolo: CabinDetections | None = None
         # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
         self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
+        self.phone_crop = PhoneCrop(thresholds.get("D06_phone", {}).get("crop"))
         self._n = 0
         self._t_first_ms: int | None = None
 
@@ -101,8 +103,18 @@ class CabinPipeline:
                 if self.cab.get("yolo", {}).get("preprocess", "nir") == "nir" and not self.simulate_nir:
                     # sama dengan training (Tech Spec bag. 5): grayscale 3 channel + CLAHE
                     yolo_in = simulate_nir(roi_img, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
-                dets = self.detector.predict(yolo_in, conf=min(self.th.get("D06_phone", {}).get("conf", 0.35),
-                                                                self.th.get("D10_ppe", {}).get("conf", 0.40)))
+                det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
+                               self.th.get("D10_ppe", {}).get("conf", 0.40))
+                dets = self.detector.predict(yolo_in, conf=det_conf)
+                face_box = face_box_from_landmarks(obs.landmarks_px) if obs.present else None
+                if self.phone_crop.enabled:
+                    # pass kedua: ponsel di potongan area pengemudi (koordinat ROI, sama dengan `dets`)
+                    fb_roi = None if face_box is None else (face_box[0] - off[0], face_box[1] - off[1],
+                                                            face_box[2] - off[0], face_box[3] - off[1])
+                    t3 = time.perf_counter()
+                    dets = self.phone_crop.run(self.detector, yolo_in, dets, fb_roi, frame.ts_ms, det_conf)
+                    if self.phone_crop.last_box is not None:
+                        tm["crop"] = (time.perf_counter() - t3) * 1000
                 if off != (0, 0):
                     for d in dets:
                         x1, y1, x2, y2 = d.xyxy
@@ -110,7 +122,7 @@ class CabinPipeline:
                 self._last_yolo = interpret(
                     dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
                     phone_filter=self.phone_filter, ts_ms=frame.ts_ms,
-                    face_box=face_box_from_landmarks(obs.landmarks_px) if obs.present else None,
+                    face_box=face_box,
                     yaw=obs.yaw_raw if obs.present else None, frame_wh=(img.shape[1], img.shape[0]))
                 tm["yolo"] = (time.perf_counter() - t2) * 1000
             yolo = self._last_yolo

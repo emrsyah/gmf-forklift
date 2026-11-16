@@ -166,6 +166,26 @@ D06_phone:
       min_hits: 2               # run YOLO berturut-turut (YOLO tiap 2 frame -> +~67 ms latensi di 30 FPS)
       max_gap_s: 0.5
       max_jump_u: 0.8           # lompatan pusat maksimum antar run agar dianggap ponsel yang sama
+  # Pass kedua YOLO untuk ponsel di potongan area pengemudi (src/cabin/phone_crop.py), 2026-11-17.
+  # cabin_v2 (data publik + hard negative) tidak menaikkan recall ponsel (0,42 -> 0,41 di test v1): ponsel di
+  # frame penuh terlalu kecil setelah diperkecil ke 640. Potongan = wilayah filter (+ margin) dalam satuan u,
+  # sehingga ponsel tampak lebih besar. Hanya kelas `classes` yang diambil dari potongan.
+  # Biaya: satu inferensi YOLO tambahan per run YOLO (Jetson TensorRT ~22 ms; laptop CPU ~60 ms).
+  # Berguna saat wajah relatif kecil di frame (kamera kabin wajah-sampai-dada); webcam dekat -> potongan ~ frame
+  # penuh -> dilewati (min_gain). Detail baru hanya jika potongan >= ~640 px (tidak di-upscale).
+  # Uji test publik cabin_v0 (88 gambar ponsel): potongan hanya terpakai di 3/359 gambar (foto publik bukan sudut
+  # kabin) -> recall sama (0,298). Efek nyata harus diukur di rekaman/live sudut kabin.
+  crop:
+    enabled: true
+    left_u: 2.6                 # filter max_dx_u 2.2 + margin setengah ponsel
+    right_u: 2.6
+    up_u: 1.2                   # filter min_dy_u -0.9 + margin
+    down_u: 4.3                 # filter max_dy_u 4.0 + margin (pangkuan)
+    min_gain: 1.25              # lewati jika sisi terpanjang potongan > frame/1,25 (tak ada keuntungan)
+    min_side_px: 160
+    face_memory_s: 5.0          # wajah hilang (menunduk ke ponsel) -> pakai kotak wajah terakhir
+    merge_iou: 0.5              # duplikat frame penuh vs potongan -> simpan conf tertinggi
+    classes: [phone]
 
 D09_camera_block:
   # Spec awal std 10 / lap 20. Rekaman webcam 2026-11-14: telapak tangan dengan cahaya bocor di tepi
