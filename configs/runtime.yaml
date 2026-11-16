@@ -119,6 +119,14 @@ ui:
   window_front: "GMF AeroAsia - Forklift Safety AI - Kamera Depan"
   window_recorder: "GMF AeroAsia - Forklift Safety AI - Recorder Lembar A"
   window_pose: "GMF AeroAsia - Forklift Safety AI - Cek Pose"
+  # Tampilan browser (MJPEG) + tombol hotkey: http://IP-PERANGKAT:port. Hanya jaringan lokal, tanpa login.
+  # CLI --web PORT menyalakannya tanpa mengubah file ini.
+  web:
+    enabled: false
+    port: 8090
+    fps: 10                 # batas frame yang dikirim ke browser (pipeline tetap jalan penuh)
+    max_side: 960
+    jpeg_quality: 75
   # Jendela diperkecil jika frame lebih besar (mis. profil kamera 2304x1296). Hanya tampilan; model & klip tidak.
   display_max_side: 1280
 

@@ -50,37 +50,51 @@ class OrtYoloDetector(Detector):
         self.names = list(names) if names else (model_names or [])
 
     def predict(self, image_bgr: np.ndarray, conf: float = 0.25) -> list[Detection]:
-        img, r, (pl, pt) = letterbox(image_bgr, self.imgsz)
-        x = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)[None].astype(np.float32) / 255.0
-        out = self.sess.run(None, {self.input_name: np.ascontiguousarray(x)})[0]
-        pred = out[0].T if out.shape[1] < out.shape[2] else out[0]   # (N, 4+nc)
-        boxes, scores = pred[:, :4], pred[:, 4:]
-        cls = scores.argmax(1)
-        cf = scores[np.arange(len(cls)), cls]
-        keep = cf >= conf
-        if not keep.any():
-            return []
-        boxes, cls, cf = boxes[keep], cls[keep], cf[keep]
-        xyxy = np.empty_like(boxes)
-        xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2
-        xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2
-        xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2
-        xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2
-        # NMS per kelas (offset kotak per kelas, sama seperti Ultralytics)
-        off = cls[:, None].astype(np.float32) * 7680.0
-        b = xyxy + off
-        idx = cv2.dnn.NMSBoxes(
-            [[float(a), float(c), float(e - a), float(d - c)] for a, c, e, d in b],
-            cf.astype(float).tolist(), conf, self.iou)
-        idx = np.array(idx).reshape(-1)[: self.max_det]
-        h, w = image_bgr.shape[:2]
-        dets: list[Detection] = []
-        for i in idx:
-            x1, y1, x2, y2 = xyxy[i]
-            x1 = float(np.clip((x1 - pl) / r, 0, w)); x2 = float(np.clip((x2 - pl) / r, 0, w))
-            y1 = float(np.clip((y1 - pt) / r, 0, h)); y2 = float(np.clip((y2 - pt) / r, 0, h))
-            k = int(cls[i])
-            name = self.names[k] if k < len(self.names) else str(k)
-            dets.append(Detection(k, name, float(cf[i]), (x1, y1, x2, y2)))
-        dets.sort(key=lambda d: -d.conf)
-        return dets
+        x, r, pad = preprocess(image_bgr, self.imgsz)
+        out = self.sess.run(None, {self.input_name: x})[0]
+        return postprocess(out, image_bgr.shape, r, pad, conf, self.iou, self.max_det, self.names)
+
+
+def preprocess(image_bgr: np.ndarray, imgsz: int):
+    """Letterbox + RGB + NCHW float32 0..1 (sama dengan Ultralytics)."""
+    img, r, pad = letterbox(image_bgr, imgsz)
+    x = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+    return np.ascontiguousarray(x), r, pad
+
+
+def postprocess(out: np.ndarray, image_shape, r: float, pad, conf: float, iou: float, max_det: int,
+                names: list[str]) -> list[Detection]:
+    """Decode output YOLO (1, 4+nc, N) + NMS per kelas -> Detection di koordinat gambar asli."""
+    pl, pt = pad
+    pred = out[0].T if out.shape[1] < out.shape[2] else out[0]   # (N, 4+nc)
+    pred = pred.astype(np.float32, copy=False)
+    boxes, scores = pred[:, :4], pred[:, 4:]
+    cls = scores.argmax(1)
+    cf = scores[np.arange(len(cls)), cls]
+    keep = cf >= conf
+    if not keep.any():
+        return []
+    boxes, cls, cf = boxes[keep], cls[keep], cf[keep]
+    xyxy = np.empty_like(boxes)
+    xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2
+    xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2
+    xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2
+    xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2
+    # NMS per kelas (offset kotak per kelas, sama seperti Ultralytics)
+    off = cls[:, None].astype(np.float32) * 7680.0
+    b = xyxy + off
+    idx = cv2.dnn.NMSBoxes(
+        [[float(a), float(c), float(e - a), float(d - c)] for a, c, e, d in b],
+        cf.astype(float).tolist(), conf, iou)
+    idx = np.array(idx).reshape(-1)[:max_det]
+    h, w = image_shape[:2]
+    dets: list[Detection] = []
+    for i in idx:
+        x1, y1, x2, y2 = xyxy[i]
+        x1 = float(np.clip((x1 - pl) / r, 0, w)); x2 = float(np.clip((x2 - pl) / r, 0, w))
+        y1 = float(np.clip((y1 - pt) / r, 0, h)); y2 = float(np.clip((y2 - pt) / r, 0, h))
+        k = int(cls[i])
+        name = names[k] if k < len(names) else str(k)
+        dets.append(Detection(k, name, float(cf[i]), (x1, y1, x2, y2)))
+    dets.sort(key=lambda d: -d.conf)
+    return dets

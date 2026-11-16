@@ -3,6 +3,8 @@
 - `ultralytics`  : .pt / .onnx / .engine lewat Ultralytics (laptop, juga bisa di Jetson)
 - `onnxruntime`  : .onnx murni lewat ONNX Runtime + NMS numpy (tanpa torch; ringan)
 - `tensorrt`     : .engine (Fase 2, di-build di Jetson) — lewat Ultralytics
+- `tensorrt_native`: .engine/.trt lewat TensorRT + cuda-python + NMS numpy (tanpa torch; dipakai bila
+                   torch di Jetson bermasalah)
 Ganti backend cukup di configs/runtime.yaml.
 """
 from __future__ import annotations
@@ -42,6 +44,9 @@ def make_detector(cfg: dict) -> Detector:
         from .ort_backend import OrtYoloDetector
         return OrtYoloDetector(weights, imgsz=imgsz, names=names,
                                providers=cfg.get("providers") or ["CPUExecutionProvider"])
+    if backend == "tensorrt_native":
+        from .trt_backend import TrtYoloDetector
+        return TrtYoloDetector(weights, imgsz=imgsz, names=names)
     if backend in ("ultralytics", "tensorrt"):
         from .ultralytics_backend import UltralyticsDetector
         return UltralyticsDetector(weights, imgsz=imgsz, names=names)
