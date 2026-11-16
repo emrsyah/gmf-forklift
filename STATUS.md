@@ -132,7 +132,7 @@ Laporan lengkap: `training/runs/cabin_v0/gate_report.md`. Bobot: `models/weights
 
 Kunci API yang diberikan dijawab **HTTP 401 (unauthorized)** oleh API GraphQL dan REST RunPod — mungkin terpotong saat ditempel, salah salin, atau izinnya terbatas. Kunci tidak disimpan di file mana pun. Sebaiknya **rotate kunci itu** (sudah tertempel di chat).
 
-## Ponsel palsu D-06 + cabin_v2 (16 Nov 2026) — SEDANG BERJALAN
+## Ponsel palsu D-06 + cabin_v2 (16 Nov 2026) — gerbang v2 GAGAL, cabin_v1 tetap dipakai
 
 **A. Filter ponsel runtime (selesai, aktif):** `src/cabin/phone_filter.py`, config `D06_phone.filter` di `thresholds.yaml`,
 dipanggil dari `yolo_cabin.interpret` / `pipeline.py` (hanya saat YOLO jalan). Tolak `phone` di luar wilayah
@@ -150,3 +150,21 @@ Fine-tune dari cabin_v1, 50 epoch. Pod **stop sendiri** (`guard.sh`: 10 menit se
 = 16:35 UTC); hasil di volume pod `/workspace/results_cabin_v2.tgz` (+ `.sha256`). Gerbang (D) BELUM dinilai:
 `cabin_best.*` masih cabin_v1. Ambil hasil: lihat `training/runpod/README.md` / laporan agen (start pod, scp, cek
 sha256, lalu terminate pod). Pod lama `rmchfltymromcj` tidak disentuh.
+
+**D. Hasil cabin_v2 (diambil 17 Nov, sha256 cocok, pod v2 di-terminate; biaya training ±$2,24).**
+Laporan: `training/runs/cabin_v2/compare/compare.md` (git-ignored). Split test, conf 0,35, IoU 0,5.
+
+| Subset | Metrik | cabin_v1 | cabin_v2 |
+|---|---|---|---|
+| legacy (1520 gbr, test v1 — gerbang) | phone P / R | 0,775 / 0,422 | **0,730 / 0,414** |
+| legacy | head_no_helmet R | 0,638 | 0,686 |
+| legacy | torso R | 0,801 | 0,817 |
+| legacy | helmet P | 0,913 | 0,902 |
+| new (Open Images + look-alike) | phone P / R | 0,458 / 0,759 | 0,585 / 0,828 |
+| new | phone palsu per gambar tanpa ponsel | 0,148 | 0,107 |
+
+v1 mereproduksi angkanya sendiri (phone 248/587). **Gerbang D gagal** pada subset legacy: presisi phone turun
+0,775 -> 0,730 dan recall 0,422 -> 0,414. Perbaikan hanya terlihat pada data look-alike baru. `cabin_best.*` tetap
+cabin_v1; kandidat disimpan di `models/weights/archive/cabin_v2_candidate.{pt,onnx}` untuk uji A/B live saja.
+Kesimpulan: data publik (foto konstruksi/COCO) tidak mewakili sudut kamera kabin; peningkatan ponsel berikutnya butuh
+data bersudut kabin (rekaman sendiri dengan izin, atau dataset DMS berlisensi) — keputusan pengguna.
