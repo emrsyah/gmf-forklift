@@ -16,6 +16,10 @@ Hotkey:
 Contoh:
   python -m tools.recorder --peraga P1 --session gladi1_P1
   python -m tools.recorder --peraga P2 --cahaya redup --source webcam:1
+  python -m tools.recorder --peraga P1 --source http://192.168.1.5:8080/video --camera-profile imx219_77ir
+Dengan --camera-profile, layar menampilkan frame simulasi kamera target; yang DIREKAM juga frame simulasi
+(replay tanpa profil = hasil kamera target). Pakai --save-raw untuk merekam frame HP mentah (bisa dibandingkan
+antar profil dengan tools/compare_profiles.py). Profil yang dipakai dicatat di <video>.camera.json.
 Privasi: rekam hanya orang yang setuju direkam; file video tidak di-commit dan tidak diunggah.
 """
 from __future__ import annotations
@@ -29,7 +33,9 @@ from pathlib import Path
 import cv2
 
 from src.capture import make_source, parse_source_arg, sidecar_ts_path
+from src.capture.camera_sim import setup_camera_sim, window_title, write_camera_sidecar
 from src.config import REPO_ROOT, load_yaml
+from src.preprocess import resize_max_side
 
 FIELDS = ["video", "start_s", "end_s", "expected_code", "expected_level", "peraga", "cahaya", "scenario"]
 
@@ -96,6 +102,12 @@ def main(argv=None):
     ap.add_argument("--guide", default=None,
                     help="YAML panduan langkah (mis. configs/guides/diag_eyes_cover_lap.yaml): instruksi besar di "
                          "layar + hitung mundur, berhenti otomatis di akhir")
+    ap.add_argument("--camera-profile", default=None,
+                    help="simulasikan kamera target (configs/camera_profiles.yaml); 'none' = matikan. "
+                         "Default: runtime.yaml cabin.camera_profile")
+    ap.add_argument("--phone-hfov", type=float, default=None, help="HFOV kamera HP/webcam sumber (derajat)")
+    ap.add_argument("--save-raw", action="store_true",
+                    help="dengan profil: rekam frame HP mentah (layar tetap menampilkan simulasi)")
     a = ap.parse_args(argv)
 
     scen = load_yaml("configs/scenarios.yaml")["scenarios"]
@@ -106,7 +118,10 @@ def main(argv=None):
     session = a.session or f"sesi_{a.peraga}_{datetime.now():%Y%m%d_%H%M%S}"
     vid_path = out_dir / f"{session}.mp4"
 
-    src = make_source({**parse_source_arg(a.source), "width": 1280, "height": 720})
+    rt = load_yaml("configs/runtime.yaml")
+    src_cfg = {**parse_source_arg(a.source), "width": 1280, "height": 720}
+    sim = setup_camera_sim(rt, "cabin", a.camera_profile, a.phone_hfov, src_cfg)
+    src = make_source(src_cfg)
     writer = None
     ts_f = open(sidecar_ts_path(vid_path), "w", encoding="utf-8")
     ts_f.write("frame,ts_ms\n")
@@ -115,16 +130,23 @@ def main(argv=None):
     mark: dict | None = None      # {"kind": "scen"/"normal", "start": t_s, "scen": dict}
     t0_ms = None
     n_rows = 0
-    win = load_yaml("configs/runtime.yaml").get("ui", {}).get("window_recorder", "Recorder Lembar A")
+    win = window_title(rt.get("ui", {}).get("window_recorder", "Recorder Lembar A"), sim)
+    max_side = rt.get("ui", {}).get("display_max_side")
+    record_raw = sim is None or a.save_raw
     try:
         with src:
-            for f in src:
-                if writer is None:
-                    h, w = f.image.shape[:2]
-                    writer = cv2.VideoWriter(str(vid_path), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, (w, h))
-                    t0_ms = f.ts_ms
-                writer.write(f.image)
-                ts_f.write(f"{f.index},{f.ts_ms}\n")
+            for raw in src:
+                f = sim.apply(raw) if sim is not None else raw     # None = dibuang batas FPS profil
+                rec = raw if record_raw else f
+                if rec is not None:
+                    if writer is None:
+                        h, w = rec.image.shape[:2]
+                        writer = cv2.VideoWriter(str(vid_path), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, (w, h))
+                        t0_ms = rec.ts_ms
+                    writer.write(rec.image)
+                    ts_f.write(f"{rec.index},{rec.ts_ms}\n")
+                if f is None:
+                    continue
                 t_s = (f.ts_ms - t0_ms) / 1000.0
 
                 vis = f.image.copy()
@@ -132,7 +154,7 @@ def main(argv=None):
                 if guide is not None:
                     draw_guide(vis, guide, t_s)
                     if t_s >= guide[-1]["end"]:
-                        cv2.imshow(win, vis)
+                        cv2.imshow(win, resize_max_side(vis, max_side) if max_side else vis)
                         cv2.waitKey(1)
                         break
                 elif t_s < a.calib_s:
@@ -157,7 +179,7 @@ def main(argv=None):
                 for i, ln in enumerate(lines):
                     col = (80, 80, 255) if (mark and i == 3) else (255, 255, 255)
                     cv2.putText(vis, ln, (12, 34 + 34 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
-                cv2.imshow(win, vis)
+                cv2.imshow(win, resize_max_side(vis, max_side) if max_side else vis)
                 k = cv2.waitKey(1) & 0xFF
                 if k in (ord("q"), 27):
                     break
@@ -190,8 +212,12 @@ def main(argv=None):
         if writer is not None:
             writer.release()
         ts_f.close()
+        if sim is not None:
+            write_camera_sidecar(vid_path, sim.name, record_raw, sim.phone_hfov_deg)
         cv2.destroyAllWindows()
     print(f"Video: {vid_path}\nTruth: {truth} (+{n_rows} baris)")
+    if sim is not None:
+        print(f"Profil kamera: {sim.name} ({'frame HP mentah' if record_raw else 'frame simulasi'} direkam)")
     print("Catatan: segmen NORMAL dihitung alarm palsu hanya jika videonya berisi segmen normal saja; "
           "rekam sesi 'normal' terpisah untuk ukuran alarm palsu per jam.")
 

@@ -13,6 +13,7 @@ eval/scenarios/*.avi
 eval/scenarios/*.mkv
 eval/scenarios/*.ts.csv
 eval/scenarios/*truth*.csv
+eval/scenarios/*.camera.json
 eval/reports/
 recordings/
 training/runs/

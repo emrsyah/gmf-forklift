@@ -5,6 +5,8 @@ Contoh:
   python -m src.main --source webcam --simulate-nir
   python -m src.main --source path/ke/video.mp4 --no-show
   python -m src.main --source webcam --fps-only          # L1: hanya buka kamera + FPS
+  python -m src.main --source http://192.168.1.5:8080/video --camera-profile imx219_77ir   # HP + simulasi kamera
+  python -m src.main --source http://192.168.1.5:8080/video --camera-profile imx219_77ir+forklift --phone-hfov 68
 Hotkey jendela: q = keluar, c = kalibrasi ulang, p = pakai baseline populasi, d = panel debug (angka mentah).
 """
 from __future__ import annotations
@@ -15,7 +17,9 @@ import time
 import cv2
 
 from src.capture import make_source, parse_source_arg
+from src.capture.camera_sim import SimulatedSource, setup_camera_sim, window_title
 from src.config import Config, deep_merge
+from src.preprocess import resize_max_side
 
 
 def parse_args(argv=None):
@@ -32,10 +36,19 @@ def parse_args(argv=None):
     ap.add_argument("--fps-only", action="store_true", help="L1: tampilkan kamera + FPS saja")
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--fast", action="store_true", help="file video: proses secepat mungkin (bukan realtime)")
+    ap.add_argument("--camera-profile", default=None,
+                    help="simulasikan kamera target dari configs/camera_profiles.yaml (mis. imx219_77ir, "
+                         "imx219_77ir+forklift); 'none' = matikan. Default: runtime.yaml cabin.camera_profile")
+    ap.add_argument("--phone-hfov", type=float, default=None, help="HFOV kamera HP/webcam sumber (derajat)")
     return ap.parse_args(argv)
 
 
-def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety AI - FPS"):
+def show_image(win: str, img, max_side: int | None):
+    cv2.imshow(win, resize_max_side(img, max_side) if max_side else img)
+
+
+def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety AI - FPS",
+                 max_side: int | None = None):
     n, t0, fps = 0, time.monotonic(), 0.0
     for f in src:
         n += 1
@@ -46,7 +59,7 @@ def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety A
         if show:
             img = f.image.copy()
             cv2.putText(img, f"FPS {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.imshow(win, img)
+            show_image(win, img, max_side)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
         if max_frames and f.index + 1 >= max_frames:
@@ -67,10 +80,19 @@ def main(argv=None):
         rt["alert"]["type"] = "none"
     show = rt.get("ui", {}).get("show", True) and not a.no_show
 
+    sim = setup_camera_sim(rt, "cabin", a.camera_profile, a.phone_hfov, rt["cabin"]["source"])
+    if sim is not None and sim.nir:
+        # kamera target NIR mono: CLAHE dilakukan pipeline (sama seperti nanti di Jetson), bukan oleh simulasi
+        rt["cabin"]["simulate_nir"] = True
+    win = window_title(rt.get("ui", {}).get("window", "cabin"), sim)
+    max_side = rt.get("ui", {}).get("display_max_side")
+
     src = make_source(rt["cabin"]["source"])
+    if sim is not None:
+        src = SimulatedSource(src, sim)
     if a.fps_only:
         with src:
-            run_fps_only(src, show, a.max_frames, rt.get("ui", {}).get("window", "cabin"))
+            run_fps_only(src, show, a.max_frames, win, max_side)
         return
 
     from src.cabin.pipeline import CabinPipeline
@@ -112,7 +134,7 @@ def main(argv=None):
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
                 if show:
-                    cv2.imshow(rt.get("ui", {}).get("window", "cabin"), vis)
+                    show_image(win, vis, max_side)
                     k = cv2.waitKey(1) & 0xFF
                     if k == ord("q"):
                         break

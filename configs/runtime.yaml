@@ -24,6 +24,10 @@ cabin:
   # Uji live 2026-11-14: frame gelap saat webcam baru menyala (mean ~13) -> D-09 palsu di detik 3.
   # Indikator tetap dihitung, tapi tidak ada alert selama sekian detik pertama sumber kamera.
   startup_grace_s: 3.0
+  # Simulasi kamera target dari kamera HP/webcam (configs/camera_profiles.yaml, docs/PHONE_CAMERA_TEST.md).
+  # null = tanpa simulasi. Contoh: imx219_77ir, imx219_77ir+forklift. CLI --camera-profile menimpa nilai ini.
+  # Profil dengan nir: true otomatis menyalakan simulate_nir (CLAHE di pipeline, bukan di simulasi).
+  camera_profile: null
   face:
     model: mediapipe        # mediapipe (fase 1) | mtdms (fase 2, belum ada)
     model_path: models/mediapipe/face_landmarker.task
@@ -73,6 +77,13 @@ front:
     class_names: null        # null = pakai nama dari model
     person_class: person
   calibration: configs/front_camera.yaml
+  # Simulasi kamera depan (mis. imx477_m12_75). Jika aktif, K/distorsi untuk jarak DITURUNKAN dari profil
+  # (frame sudah di-crop/resize), blok `camera` di front_camera.yaml diabaikan; mount/distance tetap dipakai.
+  camera_profile: null
+
+camera_sim:
+  profiles: configs/camera_profiles.yaml
+  phone_hfov_deg: null      # null = phone.hfov_deg di camera_profiles.yaml; CLI --phone-hfov menimpa
 
 alert:
   type: laptop_beep         # laptop_beep | gpio | none
@@ -108,6 +119,8 @@ ui:
   window_front: "GMF AeroAsia - Forklift Safety AI - Kamera Depan"
   window_recorder: "GMF AeroAsia - Forklift Safety AI - Recorder Lembar A"
   window_pose: "GMF AeroAsia - Forklift Safety AI - Cek Pose"
+  # Jendela diperkecil jika frame lebih besar (mis. profil kamera 2304x1296). Hanya tampilan; model & klip tidak.
+  display_max_side: 1280
 
 model_versions:
   cabin: cabin_v1

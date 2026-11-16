@@ -2,7 +2,7 @@
 rem Launcher Forklift Safety AI (laptop, Fase 1).
 rem   Klik dua kali, atau dari terminal:  run            (menu)
 rem                                       run live       (langsung tes live)
-rem Pilihan langsung: live, live-noyolo, pose, record, diag, replay, test
+rem Pilihan langsung: live, live-noyolo, pose, record, diag, replay, test, phone, front
 setlocal
 cd /d "%~dp0"
 set "PY=.venv\Scripts\python.exe"
@@ -27,6 +27,8 @@ echo   4. Rekam skenario Lembar A (manual, hotkey)
 echo   5. Rekam diagnostik terpandu (mata, lensa, pangkuan)
 echo   6. Replay harness (laporan dari eval\scenarios\truth.csv)
 echo   7. Jalankan semua unit test
+echo   8. Tes live kamera HP + profil kamera (simulasi kamera Jetson)
+echo   9. Kamera depan (webcam / HP, opsional profil kamera)
 echo   0. Keluar
 echo.
 echo   Di jendela kamera: q keluar, c kalibrasi ulang, d panel debug
@@ -49,6 +51,10 @@ if /i "%CHOICE%"=="6"           goto :replay
 if /i "%CHOICE%"=="replay"      goto :replay
 if /i "%CHOICE%"=="7"           goto :test
 if /i "%CHOICE%"=="test"        goto :test
+if /i "%CHOICE%"=="8"           goto :phone
+if /i "%CHOICE%"=="phone"       goto :phone
+if /i "%CHOICE%"=="9"           goto :front
+if /i "%CHOICE%"=="front"       goto :front
 if /i "%CHOICE%"=="0"           exit /b 0
 echo Pilihan tidak dikenal: %CHOICE%
 set "CHOICE="
@@ -84,6 +90,47 @@ goto :done
 
 :test
 "%PY%" -m pytest -q
+goto :done
+
+:phone
+echo.
+echo   Android: aplikasi "IP Webcam" -^> Start server -^> URL http://IP-HP:8080/video
+echo   iPhone / DroidCam / Iriun sebagai webcam: isi angka webcam, mis. 1
+echo   Panduan lengkap: docs\PHONE_CAMERA_TEST.md
+set "SRC="
+set /p "SRC=URL stream HP atau angka webcam: "
+if "%SRC%"=="" (
+  set "CHOICE="
+  goto :menu
+)
+echo.
+"%PY%" -m src.capture.camera_sim --list --role kabin
+set "PROFIL="
+set /p "PROFIL=Profil kamera [imx219_77ir]: "
+if "%PROFIL%"=="" set "PROFIL=imx219_77ir"
+set "HFOV="
+set /p "HFOV=HFOV kamera HP (derajat) [kosong = nilai di camera_profiles.yaml]: "
+set "HFOVARG="
+if not "%HFOV%"=="" set "HFOVARG=--phone-hfov %HFOV%"
+"%PY%" -m src.main --source "%SRC%" --camera-profile %PROFIL% %HFOVARG%
+goto :done
+
+:front
+echo.
+echo   Sumber: angka webcam (mis. 1), URL HP (http://IP-HP:8080/video), atau path video
+set "SRC="
+set /p "SRC=Sumber kamera depan [1]: "
+if "%SRC%"=="" set "SRC=1"
+echo.
+"%PY%" -m src.capture.camera_sim --list --role depan
+set "PROFIL="
+set /p "PROFIL=Profil kamera [none = tanpa simulasi]: "
+if "%PROFIL%"=="" set "PROFIL=none"
+set "HFOV="
+set /p "HFOV=HFOV kamera HP (derajat) [kosong = nilai di camera_profiles.yaml]: "
+set "HFOVARG="
+if not "%HFOV%"=="" set "HFOVARG=--phone-hfov %HFOV%"
+"%PY%" tools\run_front.py --source "%SRC%" --camera-profile %PROFIL% %HFOVARG%
 goto :done
 
 :done

@@ -21,6 +21,18 @@ def simulate_nir(img_bgr: np.ndarray, clip: float = 2.0, tile: int = 8) -> np.nd
     return cv2.cvtColor(eq, cv2.COLOR_GRAY2BGR)
 
 
+def to_gray(img_bgr: np.ndarray) -> np.ndarray:
+    """Grayscale 1 channel (frame mono sudah 2-D dibiarkan)."""
+    return img_bgr if img_bgr.ndim == 2 else cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+
+def gray3(img: np.ndarray) -> np.ndarray:
+    """Grayscale 3 channel TANPA CLAHE: tampilan keluaran sensor NIR mono (simulasi kamera, src/capture/camera_sim.py).
+    CLAHE tetap tugas pipeline (`simulate_nir`), supaya tidak diterapkan dua kali dan D-09 melihat frame mentah."""
+    g = to_gray(img)
+    return cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+
+
 def crop_roi(img: np.ndarray, roi: list[float] | None) -> tuple[np.ndarray, tuple[int, int]]:
     """Crop ROI relatif [x, y, w, h] (0..1). Mengembalikan crop dan offset (x0, y0) piksel."""
     if not roi:

@@ -90,6 +90,12 @@ class FrontPipeline:
         if hasattr(self.detector, "reset"):
             self.detector.reset()
 
+    def set_camera(self, cam_cfg: dict, camera_block: dict) -> None:
+        """Ganti intrinsik (blok `camera`) tanpa mengubah mount/distance. Dipakai simulasi profil kamera:
+        frame sudah di-crop/resize, jadi K kalibrasi asli tidak berlaku (K_for hanya benar untuk resize penuh)."""
+        self.distance = DistanceEstimator.from_config({**cam_cfg, "camera": camera_block})
+        self.calibrated = bool(camera_block.get("calibrated", False))
+
     def process(self, frame: Frame) -> FrontResult:
         img = frame.image
         h, w = img.shape[:2]

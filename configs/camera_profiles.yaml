@@ -1,0 +1,162 @@
+# Profil kamera kandidat untuk Jetson Orin Nano: dipakai untuk MENSIMULASIKAN kamera target dari
+# kamera HP / webcam (src/capture/camera_sim.py). Panduan pemakaian: docs/PHONE_CAMERA_TEST.md.
+#
+#   python -m src.main --source http://<ip-hp>:8080/video --camera-profile imx219_77ir
+#   python tools/run_front.py --source http://<ip-hp>:8080/video --camera-profile imx477_m12_75
+#   modifier bisa ditumpuk dengan '+':  --camera-profile imx219_77ir+forklift+redup
+#
+# Yang disimulasikan: sudut pandang (HFOV, crop tengah frame HP), resolusi/aspek keluaran, tampilan NIR mono,
+# vignette lampu IR, bloom, noise sensor, distorsi barrel (opsional), getaran forklift (opsional), batas FPS,
+# kompresi JPEG (opsional). Yang TIDAK bisa disimulasikan: respons kulit/mata/kacamata di 850 nm, pencahayaan
+# lampu IR di ruangan gelap (kamera HP tidak melihat IR), rolling shutter, auto-exposure kamera target.
+#
+# Catatan resolusi: model tetap memperkecil gambar (wajah: cabin.face.max_side_px = 640, YOLO: imgsz 640).
+# Resolusi keluaran penting terutama untuk (a) detail sebelum diperkecil, (b) beban CPU, (c) apakah frame HP
+# cukup tajam: jika crop HP lebih kecil dari resolusi keluaran, gambar di-UPSCALE (detail palsu) -> peringatan.
+#
+# Sumber spesifikasi (diakses 2026-11-16):
+#  [RPI]  https://www.raspberrypi.com/documentation/accessories/camera.html  (tabel "Hardware specifications")
+#  [CM3]  https://www.raspberrypi.com/products/camera-module-3/
+#  [ARD708] https://docs.arducam.com/Raspberry-Pi-Camera/Native-camera/12MP-IMX708/
+#  [ARD477] https://docs.arducam.com/Raspberry-Pi-Camera/Native-camera/12MP-IMX477/
+#  [WS219]  https://docs.waveshare.com/IMX219-X-Camera
+#  [JP]     https://forums.developer.nvidia.com/t/seeking-guidance-on-selecting-camera-with-out-of-the-box-jetson-orin-nano-using-jetpack-6-2/344509
+#           (NVIDIA: JetPack 6 punya driver bawaan IMX219 dan IMX477 untuk Orin Nano)
+#  [ARDJ]   https://docs.arducam.com/Nvidia-Jetson-Camera/Introduction-to-Arducam-Jetson-Cameras/
+#           (tabel driver Arducam Orin Nano: IMX708 ada untuk JetPack 5.1.x dan 7.2.x, TIDAK tercantum untuk JetPack 6.x)
+#  "perkiraan" = nilai yang TIDAK bisa diverifikasi dari sumber di atas (tebakan teknik; kalibrasi ulang di Jetson).
+
+# Kamera sumber (HP). HFOV harus diukur pada STREAM yang dipakai (mode video, aspek, dan stabilisasi mengubahnya).
+# Cara ukur: docs/PHONE_CAMERA_TEST.md bagian 3. Override sekali jalan: --phone-hfov DEG.
+phone:
+  hfov_deg: 70.0            # perkiraan: kamera utama HP (setara ~24-26 mm) pada frame 4:3 ~ 67-72 deg.
+                            # Lensa ultrawide (0,5x, setara ~13 mm) ~ 100-120 deg -> pakai untuk profil lebar.
+  hfov_measured: false      # true setelah diukur; jika false, overlay depan tetap "BELUM DIKALIBRASI"
+
+# Nilai default untuk field yang tidak diisi profil.
+defaults:
+  fps: 30
+  nir: false                # true = keluaran mono 3 channel (tanpa CLAHE; CLAHE dilakukan pipeline kabin)
+  exposure: 1.0             # pengali kecerahan (0,5 = setengah cahaya)
+  vignette: 0.0             # 0..1: penurunan kecerahan di tepi (lampu IR menyorot tengah / lensa)
+  bloom: {strength: 0.0, threshold: 200, sigma_px: 6.0}
+  noise: {read_std: 0.0, shot: 0.0}      # DN 0..255 pada resolusi keluaran; std shot = sqrt(shot * I)
+  distortion: {k1: 0.0, k2: 0.0}         # model radial OpenCV; dipakai juga sebagai `dist` kamera depan
+  vibration: {shift_px_std: 0.0, rot_deg_std: 0.0}
+  jpeg_quality: null        # null = tanpa kompresi tambahan; 1..100 = encode/decode JPEG (MJPEG USB / stream)
+  seed: 1234                # RNG noise/getaran: deterministik per frame (replay = hasil sama)
+  warn_upscale_above: 1.15  # peringatan jika frame HP di-upscale lebih dari ini
+
+profiles:
+  # ---------------------------------------------------------------- kabin (NoIR + lampu IR, HFOV ~60-90)
+  imx219_noir_62:
+    desc: "Raspberry Pi Camera Module 2 NoIR (Sony IMX219 8 MP), lensa standar"
+    role: kabin
+    sensor_res: [3280, 2464]          # [RPI]
+    output: [1640, 1232]              # mode binning 2x2 FOV penuh (perkiraan untuk Jetson; mode 1920x1080 sensor ini
+                                      # adalah CROP tengah -> FOV lebih sempit, jangan dipakai untuk kabin)
+    hfov_deg: 62.2                    # [RPI]
+    fps: 30
+    nir: true                         # varian NoIR tersedia [RPI]
+    vignette: 0.35                    # perkiraan: lampu IR 850 nm terpisah, sorot tengah
+    bloom: {strength: 0.15, threshold: 200, sigma_px: 6.0}   # perkiraan: kulit/kacamata memantulkan IR
+    noise: {read_std: 2.0, shot: 0.10}  # perkiraan: piksel 1,12 um [RPI], QE rendah di 850 nm
+    note: >-
+      Driver IMX219 bawaan JetPack 6 [JP]. PERHATIAN [RPI]: Camera Module 2 produksi mulai November 2026 memakai
+      Sony IMX355, bukan IMX219 -> cek dukungan driver Jetson sebelum membeli.
+
+  imx219_77ir:
+    desc: "Waveshare IMX219-77IR (IMX219 8 MP, tanpa filter IR)"
+    role: kabin
+    sensor_res: [3280, 2464]
+    output: [1640, 1232]              # perkiraan (lihat imx219_noir_62)
+    hfov_deg: 65.7                    # dihitung: 2*atan(3,68 mm / 2 / 2,85 mm). [WS219] menulis "FOV 79,3 deg"
+                                      # = diagonal (dihitung dari f 2,85 mm & diagonal 4,6 mm: ~78 deg)
+    fps: 30
+    nir: true                         # [WS219] infrared filter: None
+    vignette: 0.40                    # perkiraan: sorot lampu IR 850 nm (LED terpasang atau terpisah: listing toko
+                                      # tidak konsisten, [WS219] hanya menyebut "tanpa filter IR" -> cek saat beli)
+    bloom: {strength: 0.15, threshold: 200, sigma_px: 6.0}
+    noise: {read_std: 2.0, shot: 0.10}
+    distortion: {k1: 0.0, k2: 0.0}    # [WS219] distorsi < 1% -> diabaikan
+    note: "CSI, driver IMX219 bawaan JetPack 6 [JP]. Kandidat utama '8 MP IR'. Lampu IR: pastikan ada (lihat vignette)."
+
+  imx708_noir_66:
+    desc: "Raspberry Pi Camera Module 3 NoIR (Sony IMX708 12 MP), lensa standar"
+    role: kabin
+    sensor_res: [4608, 2592]          # [RPI]
+    output: [2304, 1296]              # mode video [RPI]; untuk Jetson perkiraan
+    hfov_deg: 66.0                    # [RPI]
+    fps: 30
+    nir: true                         # [CM3] varian NoIR tanpa filter IR
+    vignette: 0.35
+    bloom: {strength: 0.15, threshold: 200, sigma_px: 6.0}
+    noise: {read_std: 1.5, shot: 0.07}  # perkiraan: piksel 1,4 um, BSI stacked
+    note: >-
+      Driver IMX708 TIDAK bawaan JetPack; driver Arducam untuk Orin Nano tercantum di JetPack 5.1.x/7.2.x tetapi
+      tidak di 6.x [ARDJ] -> cek versi JetPack sebelum membeli. Autofokus PDAF hanya cahaya tampak; di IR CDAF [RPI].
+
+  imx708_noir_wide_102:
+    desc: "Raspberry Pi Camera Module 3 NoIR Wide (IMX708 12 MP), 102 deg horizontal"
+    role: kabin
+    sensor_res: [4608, 2592]
+    output: [2304, 1296]
+    hfov_deg: 102.0                   # [RPI], [ARD708]: 120(D) x 102(H) x 67(V)
+    fps: 30
+    nir: true
+    vignette: 0.45
+    bloom: {strength: 0.15, threshold: 200, sigma_px: 6.0}
+    noise: {read_std: 1.5, shot: 0.07}
+    distortion: {k1: -0.05, k2: 0.0}  # perkiraan: dipilih agar VFOV ~67 deg konsisten dengan HFOV 102 deg [ARD708]
+    note: >-
+      Lebih lebar dari kamera utama HP -> HARUS pakai lensa ultrawide HP (0,5x) untuk simulasi. Wajah tampak kecil;
+      cek apakah openness/landmark masih stabil.
+
+  usb_1080p_noir_90:
+    desc: "Kamera USB 1080p NoIR generik ~90 deg dengan LED IR (kelas ELP/OV2710/IMX291)"
+    role: kabin
+    sensor_res: [1920, 1080]          # perkiraan
+    output: [1920, 1080]              # perkiraan
+    hfov_deg: 90.0                    # perkiraan (banyak varian 60-170 deg; cek datasheet unit yang dibeli)
+    fps: 30
+    nir: true
+    vignette: 0.45                    # perkiraan
+    bloom: {strength: 0.20, threshold: 190, sigma_px: 7.0}
+    noise: {read_std: 2.5, shot: 0.12}
+    distortion: {k1: -0.03, k2: 0.0}  # perkiraan
+    jpeg_quality: 80                  # MJPEG lewat USB 2.0 (perkiraan)
+    note: "Semua angka perkiraan. Encode MJPEG di kamera; decode di Jetson memakai CPU."
+
+  # ---------------------------------------------------------------- depan (cahaya hangar, warna)
+  imx477_m12_75:
+    desc: "Arducam IMX477 12,3 MP + lensa M12 75 deg (B0452/B0262), filter IR-cut 650 nm"
+    role: depan
+    sensor_res: [4056, 3040]          # [RPI], [ARD477]
+    output: [1920, 1080]              # perkiraan: mode 1080p sensor [ARD477]; crop vertikal dari 4:3
+    hfov_deg: 75.0                    # [ARD477]: 75(H) x 59(V)
+    fps: 30
+    nir: false                        # [ARD477]: IR-cut 650 nm -> BUKAN kamera NIR
+    noise: {read_std: 1.0, shot: 0.03}  # perkiraan: piksel 1,55 um
+    note: "Driver IMX477 bawaan JetPack 6 [JP]. Kandidat '12 MP' kamera depan."
+
+  imx708_wide_102:
+    desc: "Raspberry Pi Camera Module 3 Wide (IMX708 12 MP, dengan filter IR), 102 deg"
+    role: depan
+    sensor_res: [4608, 2592]
+    output: [2304, 1296]
+    hfov_deg: 102.0                   # [RPI]
+    fps: 30
+    nir: false
+    noise: {read_std: 1.0, shot: 0.04}
+    distortion: {k1: -0.05, k2: 0.0}  # perkiraan (lihat imx708_noir_wide_102)
+    note: "Driver Jetson perkiraan (lihat imx708_noir_66). Butuh lensa ultrawide HP untuk simulasi."
+
+# Modifier yang ditumpuk di atas profil: --camera-profile <profil>+forklift+redup
+modifiers:
+  forklift:
+    vibration: {shift_px_std: 2.0, rot_deg_std: 0.3}   # perkiraan: getaran dudukan kamera saat forklift jalan
+  redup:
+    exposure: 0.5                     # perkiraan: cahaya setengah, gain sensor naik -> noise naik
+    noise: {read_std: 4.0, shot: 0.20}
+  stream:
+    jpeg_quality: 70                  # perkiraan: kompresi agresif bila video dikirim lewat jaringan
