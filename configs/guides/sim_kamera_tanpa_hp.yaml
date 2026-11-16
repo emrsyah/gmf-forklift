@@ -1,0 +1,31 @@
+# Panduan rekaman untuk perbandingan profil kamera (tools/compare_profiles.py) + replay (eval/replay_eval.py).
+# Tanpa skenario ponsel (HP dipakai sebagai kamera). ~4 menit, berhenti otomatis.
+#   python -m tools.recorder --peraga P1 --session sim_P1c --source http://IP-HP:4747/video \
+#       --guide configs/guides/sim_kamera_tanpa_hp.yaml --truth eval/scenarios/truth_sim.csv
+# Langkah ber-`code` ditulis otomatis ke truth.csv. Kode A-02 yang sama diberi jarak >= 20 s (cooldown A-02),
+# jadi tiap langkah bisa menghasilkan event sendiri. Teks ASCII saja (OpenCV putText).
+# Catatan: tanpa helm/rompi, D-10 bisa aktif di jeda "normal" (prioritas terendah, tidak menutupi kode lain).
+steps:
+  - {dur_s: 8,  say: "Duduk tegak, TATAP LURUS ke kamera (kalibrasi)"}
+  - {dur_s: 5,  say: "Normal, kedip biasa"}
+  - {dur_s: 4,  say: "PEJAM MATA terus, jangan dibuka", code: D02, level: A-03, scenario: 5}
+  - {dur_s: 8,  say: "Buka mata, duduk normal"}
+  - {dur_s: 4,  say: "MENOLEH KE KANAN, tahan", code: D05, level: A-02, scenario: 8}
+  - {dur_s: 8,  say: "Kembali tatap depan"}
+  - {dur_s: 6,  say: "KEPALA MIRING KE BAHU, tahan", code: D04, level: A-03, scenario: 19}
+  - {dur_s: 8,  say: "Tegak, tatap depan"}
+  - {dur_s: 6,  say: "TUTUP LENSA HP dengan telapak tangan", code: D09, level: A-03, scenario: 20}
+  - {dur_s: 8,  say: "Lepas tangan, tatap depan"}
+  - {dur_s: 4,  say: "MENOLEH KE KIRI, tahan", code: D05, level: A-02, scenario: 10}
+  - {dur_s: 8,  say: "Kembali tatap depan"}
+  - {dur_s: 4,  say: "PEJAM MATA sambil SEDIKIT MENUNDUK", code: D02, level: A-03, scenario: 7}
+  - {dur_s: 8,  say: "Tegak, buka mata"}
+  - {dur_s: 4,  say: "LIHAT PANGKUAN, mata tetap TERBUKA", code: D05, level: A-02, scenario: 9}
+  - {dur_s: 8,  say: "Tegak, tatap depan"}
+  - {dur_s: 15, say: "ANGGUK PELAN: tunduk lalu tegak, ulangi", code: D04, level: A-03, scenario: 18}
+  - {dur_s: 8,  say: "Normal, tatap depan"}
+  - {dur_s: 15, say: "TOLEH KANAN-KIRI bergantian tiap 1 detik", code: D05, level: A-02, scenario: 11}
+  - {dur_s: 10, say: "Normal, tatap depan"}
+  - {dur_s: 40, say: "KEDIP LAMBAT: pejam ~1 detik, buka, ulangi", code: D01, level: A-02, scenario: 1}
+  - {dur_s: 20, say: "Normal: ngobrol, lihat sekitar sewajarnya"}
+  - {dur_s: 3,  say: "SELESAI - terima kasih"}
