@@ -155,6 +155,50 @@ def run_pose(model, paths: list[Path], pcfg: dict) -> dict[str, list[tuple[np.nd
     return out
 
 
+_SCREEN_MODELS: dict = {}
+
+
+def screen_images(name: str, imgs: list[Path], sc: dict | None, cfg: dict, pcfg: dict) -> set[str]:
+    """Gambar yang dibuang karena model pembanding melihat kelas yang tidak dilabel sumber ini.
+
+    Masalah label parsial: sumber yang hanya melabel `phone` (Open Images, negatif COCO) bisa berisi
+    helm/rompi tanpa label -> model belajar helm/rompi = latar. Gambar seperti itu dibuang.
+    Input model pembanding diberi preprocessing yang sama dengan training (grayscale+CLAHE).
+    """
+    if not sc:
+        return set()
+    from ultralytics import YOLO
+
+    from common import clahe_params
+    from src.preprocess import simulate_nir
+
+    w = rpath(sc["weights"])
+    if not w.exists():
+        raise FileNotFoundError(f"[{name}] bobot screen tidak ada: {w} (salin cabin_v1 ke path ini)")
+    model = _SCREEN_MODELS.setdefault(str(w), YOLO(str(w)))
+    want = set(sc["classes"])
+    clip, tile = clahe_params(cfg)
+    drop: set[str] = set()
+    bs = int(pcfg["batch"])
+    for i in range(0, len(imgs), bs):
+        chunk = imgs[i:i + bs]
+        arrs, keep = [], []
+        for p in chunk:
+            im = imread(p)
+            if im is not None:
+                arrs.append(simulate_nir(im, clip, tile))
+                keep.append(p)
+        if not arrs:
+            continue
+        res = model.predict(arrs, imgsz=pcfg["imgsz"], conf=float(sc["conf"]), device=pcfg.get("device"), verbose=False)
+        for p, r in zip(keep, res):
+            names = {model.names[int(c)] for c in r.boxes.cls.cpu().numpy()}
+            if names & want:
+                drop.add(str(p))
+    print(f"[{name}] screen {sorted(want)} conf>={sc['conf']}: {len(drop)} dari {len(imgs)} gambar dibuang")
+    return drop
+
+
 # ------------------------------------------------------------------ konversi
 def convert_source(name: str, raw: Path, out: Path, cfg: dict, cm: dict, pose_model, writer, stats: dict) -> int:
     ours = class_names(cfg)
@@ -175,9 +219,12 @@ def convert_source(name: str, raw: Path, out: Path, cfg: dict, cm: dict, pose_mo
             need_pose.append(p)
     poses = run_pose(pose_model, need_pose, pcfg) if (need_pose and pose_model is not None) else {}
     print(f"[{name}] {len(imgs)} gambar, pose-fill pada {len(poses)}")
+    dropped = screen_images(name, imgs, cm.get("screen"), cfg, pcfg)
 
     n = 0
     for p in imgs:
+        if str(p) in dropped:
+            continue
         img = imread(p)
         if img is None:
             print(f"  lewati (tidak terbaca): {p.name}")

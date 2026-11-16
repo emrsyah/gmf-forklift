@@ -256,7 +256,15 @@ def dl_coco_ultralytics(name: str, s: dict, root: Path, limit: int | None, dcfg:
     zdst = root / "_archives" / "coco2017labels.zip"
     if not zdst.exists():
         http_get(s["labels_zip_url"], zdst, dcfg["retries"], max(dcfg["timeout_s"], 300))
-    want, min_area = int(s["require_class"]), float(s.get("min_box_area_frac", 0.0))
+    # require_class: satu kelas (int) ATAU daftar (salah satu cukup), dengan kotak >= min_box_area_frac.
+    # require_also: kelas lain yang harus ada (mis. person -> objek dipegang orang).
+    # exclude_classes: gambar dibuang jika berisi kelas ini (mis. cell phone untuk negatif keras;
+    #   COCO melabel 80 kelasnya secara lengkap, jadi "tidak ada label cell phone" = tidak ada ponsel).
+    rc = s["require_class"]
+    want = {int(x) for x in rc} if isinstance(rc, (list, tuple)) else {int(rc)}
+    min_area = float(s.get("min_box_area_frac", 0.0))
+    also = {int(x) for x in s.get("require_also", []) or []}
+    excl = {int(x) for x in s.get("exclude_classes", []) or []}
     pool: dict[str, tuple[str, str]] = {}
     with zipfile.ZipFile(zdst) as zf:
         for m in zf.namelist():
@@ -265,12 +273,16 @@ def dl_coco_ultralytics(name: str, s: dict, root: Path, limit: int | None, dcfg:
                 continue
             txt = zf.read(m).decode("utf-8", "ignore")
             ok = False
+            present = set()
             for ln in txt.splitlines():
                 v = ln.split()
-                if len(v) >= 5 and int(v[0]) == want and float(v[3]) * float(v[4]) >= min_area:
+                if len(v) < 5:
+                    continue
+                c = int(v[0])
+                present.add(c)
+                if c in want and float(v[3]) * float(v[4]) >= min_area:
                     ok = True
-                    break
-            if ok:
+            if ok and also <= present and not (excl & present):
                 pool[f"{parts[-2]}/{Path(m).stem}"] = (parts[-2], txt)
     chosen = sample(list(pool), limit, dcfg["seed"])
     print(f"[{name}] {len(pool)} gambar COCO berisi kelas {want}, dipilih {len(chosen)}")
@@ -297,6 +309,129 @@ def dl_coco_ultralytics(name: str, s: dict, root: Path, limit: int | None, dcfg:
         shutil.rmtree(root / "_archives", ignore_errors=True)
     write_meta(root, {"source": name, "type": s["type"], "labels_zip_url": s["labels_zip_url"],
                       "available": len(pool), "downloaded": n, "limit": limit}, _coco_names())
+    return n
+
+
+def _oi_stream_rows(url: str, keep, timeout: float):
+    """Baca CSV Open Images (GB) secara streaming; yield baris (dict) yang lolos keep(row)."""
+    import csv as _csv
+    with requests.get(url, stream=True, timeout=timeout, headers=UA) as r:
+        r.raise_for_status()
+        lines = (ln.decode("utf-8", "ignore") for ln in r.iter_lines() if ln)
+        for row in _csv.DictReader(lines):
+            if keep(row):
+                yield row
+
+
+def dl_openimages(name: str, s: dict, root: Path, limit: int | None, dcfg: dict, keep_archives: bool) -> int:
+    """Open Images V7: kotak `Mobile phone` (anotasi CC BY 4.0, gambar terdaftar CC BY 2.0).
+
+    Pilih gambar yang ponselnya kemungkinan dipegang/dipakai (kotak ponsel menyentuh kotak tangan atau
+    dekat wajah), buang gambar dengan kotak ponsel group-of / depiction (instance tidak lengkap / gambar
+    kartun), gambar berisi helm (helm proyek tidak dilabel di sini), dan gambar yang perlu dirotasi.
+    Gambar diunduh dari bucket S3 publik Open Images dan diperkecil (sisi terpanjang max_side_px).
+    """
+    import cv2
+    import numpy as np
+
+    phone, hand, face = s["phone_label"], s["hand_label"], s["face_label"]
+    skip_labels = set(s.get("skip_if_labels", []) or [])
+    wanted = {phone, hand, face} | skip_labels
+    min_area = float(s.get("min_box_area_frac", 0.0))
+    near_face = float(s.get("near_face_widths", 1.5))
+    t_out = max(dcfg["timeout_s"], 600)
+    boxes: dict[str, dict[str, list]] = {}
+    print(f"[{name}] stream {s['bbox_csv_url']}")
+    for row in _oi_stream_rows(s["bbox_csv_url"], lambda r: r["LabelName"] in wanted, t_out):
+        b = (float(row["XMin"]), float(row["YMin"]), float(row["XMax"]), float(row["YMax"]),
+             row["IsGroupOf"] == "1", row["IsDepiction"] == "1")
+        boxes.setdefault(row["ImageID"], {}).setdefault(row["LabelName"], []).append(b)
+
+    def touches(a, b) -> bool:
+        return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+    pool: dict[str, list] = {}
+    stats = {"with_phone": 0, "group_or_depiction": 0, "skip_label": 0, "small": 0, "not_in_use": 0}
+    for iid, by in boxes.items():
+        ph = by.get(phone)
+        if not ph:
+            continue
+        stats["with_phone"] += 1
+        if any(b[4] or b[5] for b in ph):
+            stats["group_or_depiction"] += 1
+            continue
+        if any(lbl in by for lbl in skip_labels):
+            stats["skip_label"] += 1
+            continue
+        big = [b for b in ph if (b[2] - b[0]) * (b[3] - b[1]) >= min_area]
+        if not big:
+            stats["small"] += 1
+            continue
+        in_use = False
+        for b in big:
+            if any(touches(b, h) for h in by.get(hand, [])):
+                in_use = True
+            for f in by.get(face, []):
+                fw = max(f[2] - f[0], 1e-6)
+                if (abs((b[0] + b[2]) / 2 - (f[0] + f[2]) / 2) <= near_face * fw and
+                        abs((b[1] + b[3]) / 2 - (f[1] + f[3]) / 2) <= near_face * fw):
+                    in_use = True
+        if not in_use and s.get("require_in_use", True):
+            stats["not_in_use"] += 1
+            continue
+        pool[iid] = ph
+    del boxes
+    print(f"[{name}] kandidat {len(pool)} gambar; {stats}")
+
+    # rotasi + atribusi (Author/License/OriginalURL) dari daftar gambar resmi; buang yang perlu dirotasi
+    meta: dict[str, dict] = {}
+    for row in _oi_stream_rows(s["images_csv_url"], lambda r: r["ImageID"] in pool, t_out):
+        meta[row["ImageID"]] = row
+    rot_bad = [i for i in pool if i not in meta or meta[i].get("Rotation", "") not in ("", "0", "0.0")]
+    for i in rot_bad:
+        pool.pop(i, None)
+    print(f"[{name}] dibuang karena rotasi/tanpa metadata: {len(rot_bad)}")
+
+    chosen = sample(list(pool), limit, dcfg["seed"])
+    reset_dir(root, keep=set(chosen))
+    max_side = int(s.get("max_side_px", 1024))
+
+    def job(iid: str) -> int:
+        img_dst, lab_dst = root / "images" / f"{iid}.jpg", root / "labels" / f"{iid}.txt"
+        if _have(img_dst, lab_dst):
+            return 1
+        try:
+            data = http_get(s["image_url_template"].format(id=iid), None, dcfg["retries"], dcfg["timeout_s"])
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return 0
+            h, w = img.shape[:2]
+            k = max_side / max(h, w)
+            if k < 1:
+                img = cv2.resize(img, (round(w * k), round(h * k)), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            if not ok:
+                return 0
+            buf.tofile(str(img_dst))
+        except Exception as e:  # noqa: BLE001
+            print(f"  lewati {iid}: {e}")
+            img_dst.unlink(missing_ok=True)
+            return 0
+        lab_dst.write_text("".join(f"0 {(b[0] + b[2]) / 2:.6f} {(b[1] + b[3]) / 2:.6f} {b[2] - b[0]:.6f} "
+                                   f"{b[3] - b[1]:.6f}\n" for b in pool[iid]), encoding="utf-8")
+        return 1
+
+    with ThreadPoolExecutor(dcfg["workers"]) as ex:
+        n = sum(ex.map(job, chosen))
+    import csv as _csv
+    with open(root / "attribution.csv", "w", newline="", encoding="utf-8") as f:
+        w = _csv.writer(f)
+        w.writerow(["ImageID", "OriginalURL", "OriginalLandingURL", "License", "Author", "Title"])
+        for iid in chosen:
+            m = meta.get(iid, {})
+            w.writerow([iid] + [m.get(k, "") for k in ("OriginalURL", "OriginalLandingURL", "License", "Author", "Title")])
+    write_meta(root, {"source": name, "type": s["type"], "bbox_csv_url": s["bbox_csv_url"],
+                      "available": len(pool), "downloaded": n, "limit": limit, "filter_stats": stats}, ["Mobile phone"])
     return n
 
 
@@ -330,6 +465,7 @@ HANDLERS = {
     "hf_coco_zip": dl_hf_coco_zip,
     "hf_yolo_zip": dl_hf_yolo_zip,
     "coco_ultralytics": dl_coco_ultralytics,
+    "openimages": dl_openimages,
     "roboflow": dl_roboflow,
 }
 

@@ -81,6 +81,14 @@ def _draw_status(img, state, pipeline, fps):
         hw = _head_words(s, pipeline.th)
         _dot(img, 18, y - 5, COL["ok"] if hw == "lurus" else COL["warn"])
         _put(img, f"kepala {hw}", 30, y)
+        # lencana menguap (masukan skor kantuk D-01): saat menguap / jumlah menguap di jendela
+        d1 = pipeline.indicators.get("D01")
+        info = d1.info if d1 is not None else {}
+        if not state.blocked_frame:
+            if info.get("yawning"):
+                _put(img, "MENGUAP", 172, y, COL["warn"], 0.45, 2)
+            elif info.get("yawns"):
+                _put(img, f"menguap {info['yawns']}x", 172, y, COL["warn"], 0.42)
     if state.blocked_frame:
         _put(img, "KAMERA TERHALANG?", 132, 72, COL["A-03"], 0.45)
 
@@ -118,6 +126,19 @@ def _draw_indicators(img, state, pipeline):
             cv2.rectangle(img, (x0 + 2, y - 15), (x0 + cw - 2, y + 6), lvl_col, 1)
 
 
+_YAWN_KEYS = ("yawns", "score", "yawning")
+
+
+def _yawn_line(s, pipeline, state) -> str:
+    d1 = pipeline.indicators.get("D01")
+    tracker = getattr(d1, "yawn", None)
+    run = tracker.run_s(state.frame.ts_ms) if tracker is not None else 0.0
+    info = d1.info if d1 is not None else {}
+    mouth = "-" if s.yawn_open is None else f"{s.yawn_open:.2f}"
+    return (f"mulut {mouth}  run {run:.1f}s  menguap {info.get('yawns', 0)}"
+            f"  skor D01 {info.get('score', d1.confidence if d1 else 0):.2f}")
+
+
 def _draw_debug(img, state, pipeline, fps):
     s = state.sig
     lines = [
@@ -126,12 +147,15 @@ def _draw_debug(img, state, pipeline, fps):
         f"wajah {'ya' if s.face_present else 'TIDAK'}  eye_valid {s.eye_valid}  mata {'TUTUP' if s.eye_closed else 'buka'}",
         f"openness {s.openness:.2f}  EAR {s.ear:.3f}  blink {s.blink:.2f}",
         f"yaw {s.yaw:+6.1f}  pitch {s.pitch:+6.1f}  roll {s.roll:+6.1f}",
+        _yawn_line(s, pipeline, state),
         f"cam std {state.cam_stats['std']:.1f} lap {state.cam_stats['lap_var']:.0f} mean {state.cam_stats['mean']:.0f}"
         f"{'  BLOCKED' if state.blocked_frame else ''}",
     ]
     for code, ind in pipeline.indicators.items():
         mark = "*" if code in state.active else " "
-        lines.append(f"{mark}{code} " + " ".join(f"{k}={v}" for k, v in ind.info.items()))
+        # info menguap D-01 sudah tampil di baris "mulut" -> baris D01 tidak melebar
+        items = {k: v for k, v in ind.info.items() if k not in _YAWN_KEYS}
+        lines.append(f"{mark}{code} " + " ".join(f"{k}={v}" for k, v in items.items()))
     _card(img, 0, 84, 470, 92 + 17 * len(lines), 0.6)
     for i, line in enumerate(lines):
         _put(img, line, 8, 102 + i * 17, COL["txt"], 0.42)

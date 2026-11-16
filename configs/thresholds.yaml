@@ -12,6 +12,10 @@ signals:
   closed_openness_exit: 0.45
   closed_blink_exit: 0.40
   mouth_open_jaw_min: 0.60
+  # Fallback bukaan mulut (sinyal yawn_open) jika model wajah tidak memberi blendshape jawOpen:
+  # yawn_open = MAR / ini (MAR = celah bibir dalam / lebar mulut). Menguap MAR ~0.5-0.9, bicara ~0.1-0.35.
+  # Belum diukur di rekaman kita; MediaPipe sekarang selalu memberi jawOpen sehingga fallback tidak dipakai.
+  mouth_mar_full: 0.9
   face_score_min: 0.50
   # eye_valid: rumus asli di Tech Spec terpotong saat ekspor PDF. Asumsi kita:
   # mata dianggap tidak bisa dibaca jika kepala menunduk terlalu dalam / menoleh terlalu jauh.
@@ -42,6 +46,44 @@ D01_drowsy:
   # Uji live 2026-11-14: 10 s setelah mulai, pejam terus (skenario 5) mengirim D-01 0,3 s SEBELUM D-02
   # karena PERCLOS = tertutup / waktu valid yang baru ~10 s. true = penyebut minimal window_s x min_valid_ratio.
   perclos_full_window: true
+
+  # ---- Menguap -> menaikkan skor kantuk D-01 (BUKAN dari spec / Lembar A; permintaan user 2026-11-16)
+  # Kode tetap D01 / A-02, tidak ada eskalasi ke A-03, tidak pernah memicu D02/D04/D05.
+  # Skor kantuk = max(PERCLOS/perclos_min, kedip_lambat/slow_blink_count) + min(yawn_bonus_max, yawn_weight x N)
+  # (N = jumlah menguap di yawn_window_s). Jalur PERCLOS/kedip lambat di atas tidak berubah sama sekali;
+  # menguap hanya MENAMBAH jalur: D-01 aktif jika skor >= 1 (gerbang min_window_fill_s/min_valid_ratio
+  # sama), atau N >= yawn_alone_count, dan HANYA selama yawn_active_hold_s setelah menguap terakhir.
+  # Default ON: sinyal sintetis Lembar A tidak punya bukaan mulut -> 20 skenario identik (tests).
+  # Pertanyaan terbuka: menguap bukan skenario Lembar A. Matikan (false) jika GMF minta uji KPI murni.
+  yawn_enabled: true
+  # Bukaan mulut (blendshape jawOpen 0..1). Bicara ~0.1-0.4, tertawa lebar sesaat ~0.5, menguap ~0.6-0.9
+  # (perkiraan, BELUM diukur di rekaman kita -> tune dengan replay). Masuk >= min, bertahan selama >= exit.
+  yawn_open_min: 0.55
+  yawn_open_exit: 0.40
+  # Durasi bukaan lebar: bicara/tertawa < ~1 s per suku kata/tawa; menguap 2-6 s. > max = makan / mulut
+  # menganga lama -> tidak dihitung. min konservatif 2.0 s agar tawa lebar tidak terhitung.
+  yawn_min_s: 2.0
+  yawn_max_s: 10.0
+  # Celah yang tidak memutus satu menguap: data hilang (wajah hilang / tangan menutup mulut) <= gap_s;
+  # bukaan turun di bawah exit <= dip_s (1-2 frame drop). dip_s kecil supaya suku kata bicara
+  # (mulut tertutup 0.15-0.3 s di antaranya) tidak tersambung jadi satu bukaan panjang.
+  # Bergantung FPS: 0.1 s = 2 frame di 30 FPS, tapi di 15 FPS drop 2 frame (0.13 s) sudah memutus
+  # menguap. Menaikkan ke 0.15 berisiko menyambung suku kata bicara -> tune ulang di Jetson (FPS nyata).
+  yawn_gap_s: 0.5
+  yawn_dip_s: 0.1
+  yawn_window_s: 300          # menguap dihitung dalam 5 menit terakhir
+  # Bobot per menguap dan batasnya. bonus_max 0.4 < 1 -> menguap SAJA tidak pernah mencapai skor 1;
+  # butuh bukti mata >= 0.6 (mis. PERCLOS >= 0.12). Satu menguap + mata ikut terpejam ~3 s
+  # (PERCLOS ~0.14 -> 0.7) + 0.2 = 0.9 < 1 -> tidak memicu; kedip normal (PERCLOS ~0.05) + 0.4 = 0.65.
+  yawn_weight: 0.2
+  yawn_bonus_max: 0.4
+  # Menguap berulang tanpa bukti mata: 3 dalam 5 menit = tanda lelah yang umum dipakai di literatur DMS.
+  # Alarm palsu: bicara/tertawa tidak lolos yawn_min_s, jadi praktis hanya menguap sungguhan. null = mati.
+  yawn_alone_count: 3
+  # D-01 dari jalur menguap hanya aktif sekian detik setelah menguap terakhir (seperti
+  # D04.nod_active_hold_s). Tanpa ini D-01 terbuka berMENIT-menit dan menutupi D-05/D-10 (prioritas lebih
+  # rendah, satu event terbuka) -> kode salah di Lembar A (risiko K4).
+  yawn_active_hold_s: 5.0
 
 D02_long_closure:
   closed_s: 1.5
@@ -90,6 +132,40 @@ D06_phone:
   conf: 0.35
   window_s: 1.0
   ratio: 0.6
+  # Filter ponsel (src/cabin/phone_filter.py), 2026-11-16: buang `phone` yang tidak masuk akal untuk
+  # pengemudi sebelum D-06. Satuan u = sisi terpanjang kotak wajah (landmark MediaPipe); dy > 0 = di bawah
+  # pusat wajah. Angka awal dari log webcam lokal (cabin_v1, satu orang):
+  #   ponsel asli (uji 15-16 Nov): |dx| <= 1,6 u, dy -0,35..0,94 u, ukuran 0,55-1,0 u, rasio sisi 1,1-2,9
+  #   palsu tanpa ponsel (diag4): tepi kiri frame, dx -1,6..-3,1 u, ukuran 0,24-0,36 u
+  #   palsu di wajah (mulut/dagu/janggut): pusat < 0,3 u dari tengah wajah, kotak di dalam kotak wajah
+  # Wilayah sengaja longgar untuk Lembar A 12 (mengetik, dada/pangkuan), 13 (telinga), 14 (setinggi kemudi,
+  # tertutup tangan). Kalibrasi ulang di Jetson dengan kamera kabin + rekaman gladi (posisi kamera berubah).
+  filter:
+    enabled: true
+    conf: 0.35                  # conf minimal kandidat ponsel saat ada referensi wajah/kepala/torso
+    max_dx_u: 2.2               # |pusat ponsel - pusat wajah| horizontal
+    min_dy_u: -0.9              # di atas wajah lebih dari ini -> tolak
+    max_dy_u: 4.0               # pangkuan masih masuk
+    min_size_u: 0.3             # sisi terpanjang kotak ponsel / u (sebagian tertutup tangan masih >= ~0,4)
+    max_size_u: 2.2
+    max_aspect: 4.0             # sisi panjang / sisi pendek (ponsel miring di telinga ~3)
+    inner_face:                 # kotak di tengah wajah = mulut/dagu/janggut, bukan ponsel
+      rx_u: 0.30
+      ry_u: 0.45
+      min_ioa: 0.5              # >= 50% kotak ponsel di dalam kotak wajah
+      max_abs_yaw_deg: 30.0     # hanya saat wajah menghadap kamera (profil: telinga bisa di tengah)
+    face_memory_s: 5.0          # wajah hilang (menunduk ke ponsel, skenario 12) -> pakai kotak wajah terakhir
+    ref_conf: 0.40              # conf kotak kepala/torso YOLO sebagai referensi cadangan
+    head_box_scale: 0.85        # u dari kotak kepala/helm (kotak kepala lebih besar dari kotak landmark wajah)
+    head_center_shift_u: 0.1
+    torso_width_to_u: 0.55      # u dari lebar kotak torso
+    torso_face_above_u: 0.7     # pusat wajah diperkirakan sekian u di atas tepi atas torso
+    no_ref_conf: 0.55           # tanpa referensi apa pun: tidak ada aturan geometri, conf lebih tinggi
+    no_ref_unit_frac: 0.25      # satuan stabilitas tanpa referensi = fraksi lebar frame
+    track:
+      min_hits: 2               # run YOLO berturut-turut (YOLO tiap 2 frame -> +~67 ms latensi di 30 FPS)
+      max_gap_s: 0.5
+      max_jump_u: 0.8           # lompatan pusat maksimum antar run agar dianggap ponsel yang sama
 
 D09_camera_block:
   # Spec awal std 10 / lap 20. Rekaman webcam 2026-11-14: telapak tangan dengan cahaya bocor di tepi

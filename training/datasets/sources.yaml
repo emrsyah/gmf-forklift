@@ -63,6 +63,47 @@ sources:
     max_images: null                    # ~4.800 gambar
     download_mb: 900
 
+  # --- cabin_v2 (2026-11-16): tambahan untuk alarm palsu + recall `phone` ---------------------------
+  # Negatif keras: COCO 2017 berisi orang + benda mirip ponsel di tangan/dekat wajah (remote, mouse,
+  # buku, cangkir, botol, gunting, sikat gigi) dan TANPA cell phone. COCO melabel 80 kelasnya secara
+  # lengkap -> tidak ada label cell phone = tidak ada ponsel (bukan sekadar "tidak dilabel").
+  # Kepala/torso diisi pose-fill seperti coco_phone. Gambar yang oleh cabin_v1 terlihat ber-helm/rompi
+  # dibuang (lihat screen di class_map) karena helm/rompi tidak dilabel di sumber ini.
+  coco_lookalike:
+    enabled: true
+    type: coco_ultralytics
+    labels_zip_url: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip
+    image_url_template: http://images.cocodataset.org/{split}/{name}
+    splits: [train2017, val2017]
+    require_class: [39, 41, 64, 65, 73, 76, 79]   # bottle, cup, mouse, remote, book, scissors, toothbrush
+    require_also: [0]                   # person (benda dipegang / dekat orang)
+    exclude_classes: [67]               # cell phone
+    min_box_area_frac: 0.002
+    class_map: coco_lookalike.yaml
+    max_images: 3000                    # ~10% data train (negatif terlalu banyak menekan recall phone)
+    download_mb: 500
+
+  # Positif ponsel: Open Images V7 "Mobile phone" (/m/050k8). Hanya gambar yang ponselnya menyentuh
+  # kotak tangan atau dekat wajah (dipakai/dipegang), tanpa kotak group-of/depiction, tanpa helm,
+  # tanpa rotasi. Anotasi CC BY 4.0; gambar terdaftar CC BY 2.0 (atribusi -> attribution.csv).
+  openimages_phone:
+    enabled: true
+    type: openimages
+    bbox_csv_url: https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv
+    images_csv_url: https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv
+    image_url_template: https://open-images-dataset.s3.amazonaws.com/train/{id}.jpg
+    phone_label: /m/050k8
+    hand_label: /m/0k65p                # Human hand
+    face_label: /m/0dzct                # Human face
+    skip_if_labels: [/m/0zvk5, /m/03p3bw, /m/07qxg_]   # Helmet, Bicycle helmet, Football helmet
+    require_in_use: true
+    near_face_widths: 1.5               # pusat ponsel <= 1,5 lebar wajah dari pusat wajah = "di telinga"
+    min_box_area_frac: 0.002
+    max_side_px: 1024
+    class_map: openimages_phone.yaml
+    max_images: 6000
+    download_mb: 1500                   # + streaming CSV anotasi 2,3 GB dan daftar gambar 0,6 GB
+
   # Foto ponsel di tangan (kecil, 57 gambar). Satu sesi -> satu grup.
   # NONAKTIF: cek visual menunjukkan sebagian kotak tidak pas dengan ponsel (mis. kotak di pergelangan
   # tangan / tepi keyboard). Aktifkan hanya setelah label dikoreksi di CVAT.

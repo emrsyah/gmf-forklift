@@ -1,7 +1,7 @@
 # Parameter pembangunan dataset YOLO kabin (L5). Dipakai oleh training/scripts/*.py.
 # Path relatif dihitung dari root repo.
 
-version: cabin_v1                       # versi data (Tech Spec bag. 7 langkah 8)
+version: cabin_v2                       # versi data (Tech Spec bag. 7 langkah 8); cabin_v1 = 4 sumber pertama
 classes: [phone, helmet, head_no_helmet, vest, torso]   # urutan = ID kelas (Tech Spec bag. 5)
 
 paths:
@@ -71,6 +71,10 @@ split:
     max_hamming: 6                      # <= ini dianggap near-duplicate -> satu grup
     bands: 4                            # LSH: 4 pita x 16 bit
   hardlink: true                        # materialisasi split dengan hardlink (hemat disk)
+  # Sumber cabin_v1: dibagi dengan algoritma yang sama HANYA di antara mereka -> split identik dengan
+  # cabin_v1 (test v1 tetap tidak pernah dilatih). Sumber baru ditempel tanpa memindahkan file lama.
+  # Kosongkan ([]) untuk perilaku lama (semua sumber dibagi bersama).
+  anchor_sources: [ppe_jhboyo, ppe_vincent, construction_keremberke, coco_phone]
   warn_group_size: 200                  # peringatan jika satu grup akhir lebih besar dari ini
 
 augment:

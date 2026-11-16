@@ -11,7 +11,11 @@ if command -v apt-get >/dev/null 2>&1; then
 fi
 
 # venv yang mewarisi torch CUDA dari image (tidak mengunduh ulang torch)
-python3 -m venv --system-site-packages .venv-train
+# VENV_DIR: taruh venv di disk lokal container jika /workspace adalah network FS yang lambat untuk
+# file kecil (secure cloud: MooseFS); .venv-train lalu menjadi symlink ke sana.
+VENV_DIR=${VENV_DIR:-.venv-train}
+python3 -m venv --system-site-packages "$VENV_DIR"
+if [ "$VENV_DIR" != ".venv-train" ]; then ln -sfn "$VENV_DIR" .venv-train; fi
 # shellcheck disable=SC1091
 source .venv-train/bin/activate
 python -m pip install -q -U pip

@@ -1,0 +1,25 @@
+# Open Images V7 "Mobile phone" (gambar ponsel dipegang/dipakai) -> kelas kabin (cabin_v2).
+# download_public.py menulis label dengan satu kelas upstream: "Mobile phone".
+source: openimages_phone
+
+map:
+  Mobile phone: [phone]
+
+# Open Images: untuk label positif terverifikasi, semua instance diberi kotak (group-of dibuang saat unduh).
+# Kepala/torso dari pose-fill; helm (kelas OI) dibuang saat unduh; rompi/helm proyek disaring screen.
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: true
+  torso_from_person: []
+
+screen:
+  weights: models/weights/cabin_v1_ref.pt
+  classes: [helmet, vest]
+  conf: 0.5
+
+group:
+  regex: []
+  whole_source: false

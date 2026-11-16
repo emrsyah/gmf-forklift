@@ -15,6 +15,7 @@ from .camblock import frame_stats, is_blocked
 from .face import FaceObs
 from .indicators import IndicatorInput, build_indicators
 from .signals import FaceSignals, SignalExtractor
+from .phone_filter import PhoneFilter, face_box_from_landmarks
 from .yolo_cabin import CabinDetections, interpret
 
 
@@ -70,6 +71,8 @@ class CabinPipeline:
                                        runtime.get("timezone_offset_h", 7.0))
         self.require_moving = bool(thresholds.get("vehicle", {}).get("require_moving", False))
         self._last_yolo: CabinDetections | None = None
+        # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
+        self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
         self._n = 0
         self._t_first_ms: int | None = None
 
@@ -104,7 +107,11 @@ class CabinPipeline:
                     for d in dets:
                         x1, y1, x2, y2 = d.xyxy
                         d.xyxy = (x1 + off[0], y1 + off[1], x2 + off[0], y2 + off[1])
-                self._last_yolo = interpret(dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}))
+                self._last_yolo = interpret(
+                    dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
+                    phone_filter=self.phone_filter, ts_ms=frame.ts_ms,
+                    face_box=face_box_from_landmarks(obs.landmarks_px) if obs.present else None,
+                    yaw=obs.yaw_raw if obs.present else None, frame_wh=(img.shape[1], img.shape[0]))
                 tm["yolo"] = (time.perf_counter() - t2) * 1000
             yolo = self._last_yolo
         self._n += 1

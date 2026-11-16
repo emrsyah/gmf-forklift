@@ -131,3 +131,22 @@ Laporan lengkap: `training/runs/cabin_v0/gate_report.md`. Bobot: `models/weights
 ## RunPod
 
 Kunci API yang diberikan dijawab **HTTP 401 (unauthorized)** oleh API GraphQL dan REST RunPod — mungkin terpotong saat ditempel, salah salin, atau izinnya terbatas. Kunci tidak disimpan di file mana pun. Sebaiknya **rotate kunci itu** (sudah tertempel di chat).
+
+## Ponsel palsu D-06 + cabin_v2 (16 Nov 2026) — SEDANG BERJALAN
+
+**A. Filter ponsel runtime (selesai, aktif):** `src/cabin/phone_filter.py`, config `D06_phone.filter` di `thresholds.yaml`,
+dipanggil dari `yolo_cabin.interpret` / `pipeline.py` (hanya saat YOLO jalan). Tolak `phone` di luar wilayah
+pengemudi (satuan = ukuran wajah), terlalu kecil/besar/pipih, di tengah wajah (mulut/dagu/janggut saat menghadap
+kamera), atau tidak stabil (< 2 run YOLO berturut-turut di tempat yang sama). Wajah hilang (menunduk ke ponsel,
+skenario 12) -> kotak wajah terakhir 5 s -> kotak kepala/torso YOLO -> lolos dengan conf 0,55 (tidak pernah
+menolak hanya karena wajah hilang). `tests/test_phone_filter.py` 23 tes (geometri 12/13/14 lolos, D-06 < 2 s,
+pola palsu ditolak). Log webcam lokal (cabin_v1): palsu di diag4 (kecil, tepi frame) dan di dalam wajah
+tertolak; ponsel asli uji 15-16 Nov ada di dalam wilayah. Angka awal dari SATU orang/webcam -> kalibrasi ulang.
+
+**C. cabin_v2 di RunPod:** pod `rdmkhjwcjr1zt5` (RTX 4090 secure, $0,89/jam, mulai ~11:28 UTC). Data = sumber v1
+(split identik v1 lewat `split.anchor_sources`) + `openimages_phone` (maks 6.000) + `coco_lookalike` negatif
+keras (maks 3.000, label parsial: pose-fill kepala/torso + buang gambar ber-helm/rompi menurut cabin_v1).
+Fine-tune dari cabin_v1, 50 epoch. Pod **stop sendiri** (`guard.sh`: 10 menit setelah DONE, batas keras 5 jam
+= 16:35 UTC); hasil di volume pod `/workspace/results_cabin_v2.tgz` (+ `.sha256`). Gerbang (D) BELUM dinilai:
+`cabin_best.*` masih cabin_v1. Ambil hasil: lihat `training/runpod/README.md` / laporan agen (start pod, scp, cek
+sha256, lalu terminate pod). Pod lama `rmchfltymromcj` tidak disentuh.

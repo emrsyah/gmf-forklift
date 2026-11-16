@@ -1,0 +1,27 @@
+# COCO 2017: orang + benda mirip ponsel, TANPA cell phone -> negatif keras untuk kelas phone (cabin_v2).
+# Upstream memakai 80 nama kelas COCO; benda mirip ponsel sengaja TIDAK dipetakan (= latar).
+source: coco_lookalike
+
+map:
+  cell phone: [phone]          # tidak akan ada (exclude_classes: [67]); dipertahankan agar aman
+
+# COCO melabel cell phone secara lengkap -> phone "terlabel" (negatif sah).
+# helm/rompi tidak dilabel -> gambar yang tampak ber-helm/rompi dibuang lewat screen di bawah.
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: true
+  torso_from_person: []
+
+# Buang gambar jika model pembanding (cabin_v1) melihat kelas yang TIDAK dilabel sumber ini
+# (helm/rompi) dengan conf tinggi; tanpa ini helm/rompi yang ada di gambar diajarkan sebagai latar.
+screen:
+  weights: models/weights/cabin_v1_ref.pt
+  classes: [helmet, vest]
+  conf: 0.5
+
+group:
+  regex: []
+  whole_source: false

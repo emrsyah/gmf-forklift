@@ -102,6 +102,59 @@ class D02LongClosure(Indicator):
         return self.active
 
 
+# ---------------------------------------------------------------- menguap (masukan D-01)
+class _YawnTracker:
+    """Deteksi menguap dari `sig.yawn_open` (0..1), berbasis timestamp sumber.
+
+    Satu run = mulut terbuka >= yawn_open_min, bertahan selama >= yawn_open_exit (hysteresis).
+    Run tidak putus oleh celah singkat: data hilang (wajah hilang / None, mis. tangan menutup mulut)
+    <= yawn_gap_s, atau bukaan turun di bawah exit <= yawn_dip_s. Saat run selesai, dihitung sebagai
+    menguap jika durasinya dalam [yawn_min_s, yawn_max_s] (lebih pendek = bicara/tertawa,
+    lebih panjang = makan/mulut menganga lama, bukan menguap).
+    """
+
+    def __init__(self, cfg: dict):
+        self.c = cfg
+        self.yawns: deque = deque()          # (t_counted_ms, t_start_ms) menguap selesai
+        self._start: int | None = None
+        self._last_open: int | None = None
+        self.value: float | None = None
+
+    @property
+    def in_run(self) -> bool:
+        return self._start is not None
+
+    def run_s(self, ts_ms: int) -> float:
+        return 0.0 if self._start is None else (ts_ms - self._start) / 1000.0
+
+    def _finish(self, ts_ms: int):
+        dur = (self._last_open - self._start) / 1000.0
+        if self.c.get("yawn_min_s", 2.0) <= dur <= self.c.get("yawn_max_s", 10.0):
+            self.yawns.append((ts_ms, self._start))
+        self._start = self._last_open = None
+
+    def update(self, ts_ms: int, s: FaceSignals):
+        c = self.c
+        v = s.yawn_open if s.face_present else None
+        self.value = v
+        thr = c.get("yawn_open_exit", 0.40) if self.in_run else c.get("yawn_open_min", 0.55)
+        if v is not None and v >= thr:
+            if self._start is None:
+                self._start = ts_ms
+            self._last_open = ts_ms
+        elif self.in_run:
+            tol = c.get("yawn_gap_s", 0.5) if v is None else c.get("yawn_dip_s", 0.1)
+            if (ts_ms - self._last_open) / 1000.0 > tol:
+                self._finish(ts_ms)
+        wms = c.get("yawn_window_s", 300) * 1000
+        while self.yawns and self.yawns[0][0] < ts_ms - wms:
+            self.yawns.popleft()
+
+    def yawning(self, ts_ms: int) -> bool:
+        """Sedang menguap (untuk overlay): run sudah >= yawn_min_s dan belum lewat yawn_max_s."""
+        return self.in_run and self.c.get("yawn_min_s", 2.0) <= self.run_s(ts_ms) <= self.c.get("yawn_max_s", 10.0)
+
+
 # ---------------------------------------------------------------- D-01 kantuk (A-02)
 class D01Drowsy(Indicator):
     code = "D01"
@@ -112,6 +165,8 @@ class D01Drowsy(Indicator):
         self.closures: deque = deque()     # (t_end_ms, dur_s, t_start_ms) kedipan lambat
         self._closed_since: int | None = None
         self._last_closed = False
+        self.yawn = _YawnTracker(cfg)
+        self.score = 0.0                   # tingkat kantuk: >= 1 = ambang D-01
 
     def update(self, x):
         dt = self._dt(x.ts_ms)
@@ -149,19 +204,44 @@ class D01Drowsy(Indicator):
         perclos = closed_time / denom if denom > 0 else 0.0
         slow = len(self.closures)
         enough = span >= self.c.get("min_window_fill_s", 10)
-        self.active = bool(enough and valid_ratio >= self.c.get("min_valid_ratio", 0.7)
-                           and (perclos > self.c.get("perclos_min", 0.20)
-                                or slow >= self.c.get("slow_blink_count", 4)))
+        gates = enough and valid_ratio >= self.c.get("min_valid_ratio", 0.7)
+        # jalur mata (PERCLOS / kedip lambat) -- TIDAK berubah oleh fitur menguap
+        eye_active = bool(gates and (perclos > self.c.get("perclos_min", 0.20)
+                                     or slow >= self.c.get("slow_blink_count", 4)))
+        eye_score = max(perclos / max(1e-6, self.c.get("perclos_min", 0.2)),
+                        slow / max(1, self.c.get("slow_blink_count", 4)))
+
+        # jalur menguap: menambah skor kantuk; hanya aktif sebentar setelah menguap terakhir
+        yawn_active = False
+        n_yawn = 0
+        bonus = 0.0
+        if self.c.get("yawn_enabled", False):
+            self.yawn.update(x.ts_ms, s)
+            n_yawn = len(self.yawn.yawns)
+            bonus = min(self.c.get("yawn_bonus_max", 0.4), self.c.get("yawn_weight", 0.2) * n_yawn)
+            if n_yawn:
+                recent = x.ts_ms - self.yawn.yawns[-1][0] <= self.c.get("yawn_active_hold_s", 5.0) * 1000
+                alone = self.c.get("yawn_alone_count")
+                yawn_active = recent and ((gates and eye_score + bonus >= 1.0)
+                                          or (alone is not None and n_yawn >= alone))
+        self.score = eye_score + bonus
+
+        self.active = eye_active or yawn_active
         if self.active and self.condition_start_ms is None:
-            first = self.closures[0][2] if self.closures else x.ts_ms
+            if eye_active:
+                first = self.closures[0][2] if self.closures else x.ts_ms
+            else:
+                first = self.yawn.yawns[-1][1]     # awal menguap yang memicu, bukan menit-menit lalu
             self.condition_start_ms = int(first)
         elif not self.active:
             self.condition_start_ms = None
-        self.confidence = min(1.0, max(perclos / max(1e-6, self.c.get("perclos_min", 0.2)),
-                                       slow / max(1, self.c.get("slow_blink_count", 4))) / 1.0)
-        self.confidence = min(1.0, self.confidence)
+        # aktif -> 1.0 (jalur mata aktif berarti skor >= 1 juga; jalur yawn_alone_count bisa < 1)
+        self.confidence = 1.0 if self.active else min(1.0, self.score)
         self.info = {"perclos": round(perclos, 3), "slow_blinks": slow,
                      "valid_ratio": round(valid_ratio, 2), "span_s": round(span, 1)}
+        if self.c.get("yawn_enabled", False):
+            self.info.update({"yawns": n_yawn, "score": round(self.score, 2),
+                              "yawning": self.yawn.yawning(x.ts_ms)})
         return self.active
 
 

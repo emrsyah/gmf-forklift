@@ -15,6 +15,9 @@ from .face import FaceObs
 # Indeks landmark mata MediaPipe (Tech Spec bag. 3): p1..p6 untuk EAR
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+# Mulut (fallback tanpa blendshape): bibir dalam atas/bawah + sudut mulut
+MOUTH_INNER_TOP, MOUTH_INNER_BOTTOM = 13, 14
+MOUTH_LEFT, MOUTH_RIGHT = 61, 291
 
 
 @dataclass
@@ -36,6 +39,9 @@ class FaceSignals:
     roll: float = 0.0
     mouth_open: bool = False
     jaw_open: float = 0.0
+    # bukaan mulut 0..1 untuk deteksi menguap (D-01): blendshape jawOpen jika model memberinya,
+    # jika tidak -> mouth aspect ratio dari landmark / signals.mouth_mar_full. None = tidak terbaca.
+    yawn_open: float | None = None
     calibrated: bool = False
 
 
@@ -50,6 +56,14 @@ def eye_aspect_ratio(pts: np.ndarray) -> float:
     if horiz < 1e-6:
         return 0.0
     return float((np.linalg.norm(p2 - p6) + np.linalg.norm(p3 - p5)) / (2.0 * horiz))
+
+
+def mouth_aspect_ratio(lm: np.ndarray) -> float:
+    """MAR = tinggi celah bibir dalam / lebar mulut (sudut ke sudut). ~0 tertutup, besar saat menguap."""
+    width = np.linalg.norm(lm[MOUTH_LEFT] - lm[MOUTH_RIGHT])
+    if width < 1e-6:
+        return 0.0
+    return float(np.linalg.norm(lm[MOUTH_INNER_TOP] - lm[MOUTH_INNER_BOTTOM]) / width)
 
 
 class _Median:
@@ -91,11 +105,17 @@ class SignalExtractor:
         ear_l = eye_aspect_ratio(lm[LEFT_EYE])
         ear_r = eye_aspect_ratio(lm[RIGHT_EYE])
         bs = obs.blendshapes
+        if "jawOpen" in bs:
+            jaw = bs["jawOpen"]
+        else:
+            # model tanpa blendshape (mis. MtDMS nanti): skala MAR ke rentang ~jawOpen
+            full = self.c.get("mouth_mar_full", 0.9)
+            jaw = float(np.clip(mouth_aspect_ratio(lm) / max(1e-6, full), 0.0, 1.0))
         return {
             "ear_l": ear_l, "ear_r": ear_r,
             "blink": max(bs.get("eyeBlinkLeft", 0.0), bs.get("eyeBlinkRight", 0.0)),
             "yaw": obs.yaw_raw, "pitch": obs.pitch_raw, "roll": obs.roll_raw,
-            "jaw": bs.get("jawOpen", 0.0),
+            "jaw": jaw,
         }
 
     def update(self, obs: FaceObs, ts_ms: int) -> FaceSignals:
@@ -139,5 +159,6 @@ class SignalExtractor:
             eye_closed=bool(eye_closed), eye_closed_strict=bool(strict), eye_valid=bool(eye_valid),
             yaw=yaw, pitch=pitch, roll=roll,
             mouth_open=v["jaw"] > c.get("mouth_open_jaw_min", 0.6), jaw_open=v["jaw"],
+            yawn_open=float(v["jaw"]),
             calibrated=self.cal.done,
         )

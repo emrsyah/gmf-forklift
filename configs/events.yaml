@@ -19,7 +19,7 @@ front_events_enabled: false
 
 # Teks penjelasan untuk banner alert di layar (overlay). Tidak dikirim di event JSON.
 labels:
-  D01: "Kantuk - kedip lambat / mata sering tertutup"
+  D01: "Kantuk - kedip lambat / mata sering tertutup / sering menguap"
   D02: "Microsleep - mata tertutup terus >= 1,5 s"
   D04: "Kepala terkulai - mengangguk / kepala miring"
   D05: "Pandangan lepas dari jalan (menoleh / menunduk)"
