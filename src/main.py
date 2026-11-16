@@ -111,11 +111,15 @@ def main(argv=None):
     fps, n, t0 = 0.0, 0, time.monotonic()
     last = None
     debug = False
+    cal_status = None
     try:
         with src:
             for frame in src:
                 st = pipe.process(frame)
                 last = st
+                if pipe.calibration.status != cal_status:   # log setiap perubahan status kalibrasi
+                    cal_status = pipe.calibration.status
+                    print(f"[kalibrasi] t={frame.video_t_s:.1f}s {cal_status}", flush=True)
                 for act in st.actions:
                     if act.kind == "buzz":
                         alerter.buzz(act.payload["level"], act.payload["code"], act.payload["first"])
