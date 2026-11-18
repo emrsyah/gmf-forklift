@@ -173,6 +173,48 @@ def test_perclos_path_unchanged_by_yawn_feature():
 
 
 # ------------------------------------------------------------------ sistem: prioritas & hold
+D02 = TH["D02_long_closure"]
+
+
+def test_eyes_closed_while_yawning_is_not_d02():
+    """Rekaman webcam 2026-11-18: menguap memejamkan mata 1,5-3 s -> dulu D-02 A-03 (kode salah)."""
+    tl = rest(Timeline(), 2)
+    yawn(tl, 0.5)
+    tl.closed(3.0, yawn_open=WIDE)                         # pejam 3 s selama mulut terbuka lebar
+    tl.closed(D02["yawn_mask"]["release_s"] * 0.8, yawn_open=0.05)   # mata baru terbuka sesaat setelah mulut menutup
+    rest(tl, 5)
+    events, first = run_system(tl)
+    assert "D02" not in first
+
+
+def test_microsleep_continuing_after_yawn_is_d02():
+    """Mata tetap terpejam setelah mulut menutup -> mikrotidur, tetap D-02 (dihitung setelah mask lepas)."""
+    tl = rest(Timeline(), 2)
+    yawn(tl, 1.0)
+    tl.closed(2.5, yawn_open=WIDE)
+    t_mouth_closed = tl.t_ms
+    tl.closed(D02["yawn_mask"]["release_s"] + D02["closed_s"] + 1.0, yawn_open=0.05)
+    rest(tl, 10)
+    events, first = run_system(tl)
+    d02 = [e for e in starts(events) if e["code"] == "D02"]
+    assert d02 and d02[0]["level"] == "A-03"
+    assert d02[0]["ts_event_ms"] >= t_mouth_closed + (D02["yawn_mask"]["release_s"] + D02["closed_s"]) * 1000 - 50
+
+
+def test_yawn_eye_closure_does_not_inflate_perclos():
+    tl = rest(Timeline(), 12)
+    for _ in range(2):
+        yawn(tl, 0.5)
+        tl.closed(3.0, yawn_open=WIDE)
+        rest(tl, 8)
+    ind = _d01()
+    run_indicator(ind, tl)
+    assert ind.info["perclos"] < 0.02 and ind.info["slow_blinks"] == 0
+    off = _d01(yawn_eye_mask=False)
+    run_indicator(off, tl)
+    assert off.info["perclos"] > ind.info["perclos"]       # kontrol: tanpa mask, pejaman menguap masuk PERCLOS
+
+
 def test_d02_microsleep_wins_over_yawn_d01():
     tl = rest(Timeline(), 2)
     for _ in range(D01["yawn_alone_count"] - 1):
@@ -180,14 +222,13 @@ def test_d02_microsleep_wins_over_yawn_d01():
         rest(tl, 20)
     yawn(tl, 1.0)
     tl.closed(2.5, yawn_open=WIDE)                         # menguap ke-3 sambil mata terpejam ...
-    tl.closed(2.0, yawn_open=0.05)                         # ... dan tetap terpejam setelah mulut menutup
+    tl.closed(4.0, yawn_open=0.05)                         # ... dan tetap terpejam setelah mulut menutup
     rest(tl, 10)
     events, first = run_system(tl)
     st = starts(events)
-    assert "D01" in first and "D02" in first               # sempat aktif bersamaan
-    assert st[0]["code"] == "D02" and st[0]["level"] == "A-03"
-    d02_end = next(e["ts_event_ms"] for e in events if e["code"] == "D02" and e["phase"] == "end")
-    assert all(e["ts_event_ms"] >= d02_end for e in st if e["code"] == "D01")   # D01 tak menyela D02
+    assert "D01" in first and "D02" in first
+    d02 = [e for e in st if e["code"] == "D02"]
+    assert d02 and d02[0]["level"] == "A-03"               # mikrotidur tetap D-02 dan menyela D-01
     assert all(e["level"] == "A-02" for e in st if e["code"] == "D01")
 
 

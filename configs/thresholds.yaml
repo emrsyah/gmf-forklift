@@ -32,6 +32,18 @@ calibration:
   max_abs_roll_deg: 15        # tolak pose "lurus" yang miring/menoleh/menunduk (relatif kamera)
   max_abs_yaw_deg: 25
   max_abs_pitch_deg: 35       # longgar: kamera kabin dipasang di bawah mata -> pitch mentah tidak nol
+  # Sudut pasang kamera: pose wajah (mentah, relatif kamera) saat pengemudi menatap lurus ke depan. Batas
+  # max_abs_* di atas dihitung RELATIF sudut ini, dan baseline populasi memakai sudut ini sebagai nol.
+  # Kamera di pilar depan kanan -> isi mount_yaw_deg (cek tanda dengan tools/check_pose di posisi pasang).
+  # Laptop/webcam depan wajah = 0. Diisi ulang saat pemasangan di forklift (Fase 2).
+  mount_yaw_deg: 0.0
+  mount_pitch_deg: 0.0
+  mount_roll_deg: 0.0
+  # Ganti pengemudi / pengemudi kembali setelah turun: wajah hilang >= sekian detik lalu muncul lagi ->
+  # kalibrasi ulang otomatis (baseline lama tetap dipakai sampai kalibrasi baru berhasil). Harus > durasi
+  # skenario tanpa wajah di Lembar A (D-09 lensa ditutup 15 s) agar tidak mengkalibrasi ulang di tengah uji.
+  # null = mati.
+  auto_recalibrate_after_absent_s: 20.0
 
 D01_drowsy:
   window_s: 30
@@ -58,6 +70,8 @@ D01_drowsy:
   yawn_enabled: true
   # Bukaan mulut (blendshape jawOpen 0..1). Bicara ~0.1-0.4, tertawa lebar sesaat ~0.5, menguap ~0.6-0.9
   # (perkiraan, BELUM diukur di rekaman kita -> tune dengan replay). Masuk >= min, bertahan selama >= exit.
+  yawn_eye_mask: true          # mata terpejam saat menguap tidak masuk PERCLOS/kedip lambat (lihat D02 yawn_mask)
+  yawn_eye_mask_release_s: 1.0
   yawn_open_min: 0.55
   yawn_open_exit: 0.40
   # Durasi bukaan lebar: bicara/tertawa < ~1 s per suku kata/tawa; menguap 2-6 s. > max = makan / mulut
@@ -88,6 +102,15 @@ D01_drowsy:
 D02_long_closure:
   closed_s: 1.5
   face_gap_tolerance_s: 0.3
+  # Menguap memejamkan mata -> tanpa mask, setiap menguap memicu D-02 A-03 (kode salah, risiko K4; rekaman
+  # webcam uji_yawn_P1 2026-11-18: 3/3 menguap -> D-02). Selama mulut terbuka lebar (sinyal yawn_open, sama
+  # dengan ambang menguap D-01) + release_s sesudahnya, pejaman tidak dihitung. Mikrotidur yang berlanjut
+  # setelah mulut menutup tetap jadi D-02 (hitungan mulai lagi setelah mask lepas).
+  yawn_mask:
+    enabled: true
+    open_min: 0.55            # = D01_drowsy.yawn_open_min
+    open_exit: 0.40           # = D01_drowsy.yawn_open_exit
+    release_s: 1.0
 
 D04_head_drop:
   nod_drop_deg: 15

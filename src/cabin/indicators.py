@@ -69,6 +69,28 @@ class _TimeWindow:
         return sum(d for _, d, v in self.q if fn(v)) / tot
 
 
+class _MouthOpenMask:
+    """Mulut terbuka lebar (menguap) -> mata yang terpejam saat itu BUKAN tanda tidur: orang menguap memang
+    memejamkan mata. Aktif selama bukaan >= open_min (keluar di bawah open_exit, hysteresis) dan release_s
+    sesudah mulut menutup (mata biasanya baru terbuka sesaat setelah mulut menutup). Mikrotidur yang
+    berlanjut setelah itu tetap terdeteksi: hitungan pejaman mulai lagi setelah mask lepas."""
+
+    def __init__(self, enabled: bool, open_min: float, open_exit: float, release_s: float):
+        self.enabled = enabled
+        self.open_min, self.open_exit, self.release_ms = open_min, open_exit, release_s * 1000
+        self._open = False
+        self._last_open: int | None = None
+
+    def update(self, ts_ms: int, s: FaceSignals) -> bool:
+        if not self.enabled:
+            return False
+        v = s.yawn_open if s.face_present else None
+        self._open = v is not None and v >= (self.open_exit if self._open else self.open_min)
+        if self._open:
+            self._last_open = ts_ms
+        return self._last_open is not None and ts_ms - self._last_open <= self.release_ms
+
+
 # ---------------------------------------------------------------- D-02 pejaman panjang (A-03)
 class D02LongClosure(Indicator):
     code = "D02"
@@ -78,11 +100,19 @@ class D02LongClosure(Indicator):
         self.closed_run = 0.0
         self.gap = 0.0
         self._run_start: int | None = None
+        m = cfg.get("yawn_mask") or {}
+        self.mask = _MouthOpenMask(bool(m.get("enabled", False)), m.get("open_min", 0.55),
+                                   m.get("open_exit", 0.40), m.get("release_s", 1.0))
 
     def update(self, x):
         dt = self._dt(x.ts_ms)
         s = x.sig
-        if s.face_present and s.eye_valid and s.eye_closed:
+        masked = self.mask.update(x.ts_ms, s)
+        if masked:
+            # sedang/baru menguap: pejaman tidak dihitung sebagai mikrotidur
+            self._run_start = None
+            self.gap = 0.0
+        elif s.face_present and s.eye_valid and s.eye_closed:
             if self._run_start is None:
                 self._run_start = x.ts_ms
             self.gap = 0.0
@@ -98,7 +128,7 @@ class D02LongClosure(Indicator):
         self.active = self.closed_run >= self.c.get("closed_s", 1.5)
         self.condition_start_ms = self._run_start
         self.confidence = min(1.0, self.closed_run / max(1e-6, self.c.get("closed_s", 1.5)))
-        self.info = {"closed_run_s": round(self.closed_run, 2)}
+        self.info = {"closed_run_s": round(self.closed_run, 2), "yawn_masked": masked}
         return self.active
 
 
@@ -167,15 +197,24 @@ class D01Drowsy(Indicator):
         self._last_closed = False
         self.yawn = _YawnTracker(cfg)
         self.score = 0.0                   # tingkat kantuk: >= 1 = ambang D-01
+        # mata terpejam saat menguap tidak masuk PERCLOS / kedip lambat (menguap sudah dihitung lewat skor)
+        self.eye_mask = _MouthOpenMask(bool(cfg.get("yawn_enabled", False) and cfg.get("yawn_eye_mask", False)),
+                                       cfg.get("yawn_open_min", 0.55), cfg.get("yawn_open_exit", 0.40),
+                                       cfg.get("yawn_eye_mask_release_s", 1.0))
 
     def update(self, x):
         dt = self._dt(x.ts_ms)
         s = x.sig
-        valid = s.face_present and s.eye_valid
+        masked = self.eye_mask.update(x.ts_ms, s)
+        valid = s.face_present and s.eye_valid and not masked
         eye = s.eye_closed
         if self.c.get("closed_signal", "strict") == "strict" and s.eye_closed_strict is not None:
             eye = s.eye_closed_strict
         closed = valid and eye
+        if masked:
+            # pejaman yang sedang berjalan saat menguap mulai tidak dihitung sebagai kedip lambat
+            self._closed_since = None
+            self._last_closed = False
         self.win.add(x.ts_ms, dt, (valid, closed))
 
         # deteksi kedipan lambat: durasi satu pejaman dalam [min, max]

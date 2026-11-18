@@ -1,0 +1,26 @@
+# Panduan rekaman PERILAKU NORMAL pengemudi: semua langkah (selain kalibrasi) TIDAK BOLEH memicu alert.
+# Mengukur alarm palsu per kasus nyata yang tidak ada di Lembar A.
+#   python -m tools.recorder --peraga P1 --session normal_P1 --source webcam \
+#       --guide configs/guides/perilaku_normal.yaml --truth eval/scenarios/truth_sim.csv
+# Siapkan: botol minum, HT/walkie-talkie (atau benda seukuran HT), kacamata (safety/biasa/hitam), topi/helm.
+# Jika properti tidak ada, lakukan langkah lain dan biarkan langkah itu lewat. ~5,5 menit, berhenti otomatis.
+# Teks ASCII saja (OpenCV putText).
+steps:
+  - {dur_s: 8,  say: "Duduk tegak, TATAP LURUS ke kamera (kalibrasi)"}
+  - {dur_s: 15, say: "Normal: lihat ke depan seperti menyetir", code: NONE}
+  - {dur_s: 15, say: "LIRIK SPION kanan lalu kiri, sekilas (1 detik), ulangi", code: NONE}
+  - {dur_s: 15, say: "Cek PERSIMPANGAN: toleh kiri 1 detik, kanan 1 detik, depan", code: NONE}
+  - {dur_s: 10, say: "LIHAT TUAS di kanan bawah sekilas, kembali ke depan", code: NONE}
+  - {dur_s: 10, say: "MENDONGAK lihat garpu di atas, sekilas", code: NONE}
+  - {dur_s: 15, say: "MINUM dari botol 2-3 teguk", code: NONE}
+  - {dur_s: 15, say: "TERTAWA / ngobrol santai", code: NONE}
+  - {dur_s: 15, say: "Pegang HT di telinga, bicara (benda seukuran HT)", code: NONE}
+  - {dur_s: 8,  say: "Taruh HT, tatap depan"}
+  - {dur_s: 20, say: "PAKAI KACAMATA, lihat depan seperti menyetir", code: NONE}
+  - {dur_s: 10, say: "Lepas kacamata, tatap depan"}
+  - {dur_s: 20, say: "PAKAI TOPI / HELM, lihat depan seperti menyetir", code: NONE}
+  - {dur_s: 15, say: "MENYIPIT seperti silau matahari, tetap lihat depan", code: NONE}
+  - {dur_s: 15, say: "Garuk kepala / betulkan helm / usap wajah sekilas", code: NONE}
+  - {dur_s: 15, say: "Kedip normal, sesekali kedip cepat 2x", code: NONE}
+  - {dur_s: 20, say: "Duduk santai, sedikit bergoyang (seperti jalan bergelombang)", code: NONE}
+  - {dur_s: 3,  say: "SELESAI - terima kasih"}

@@ -15,7 +15,11 @@ class Calibration:
         self.min_frames = int(cfg.get("min_frames", 30))
         self.pop_ear = float(cfg.get("population_ear_baseline", 0.28))
         self.ear_baseline = self.pop_ear
-        self.yaw0 = self.pitch0 = self.roll0 = 0.0
+        # sudut pasang kamera (mis. di pilar depan, wajah terlihat menyamping ~20-30 deg saat menatap depan):
+        # pose "lurus" yang diharapkan = sudut ini, dan baseline populasi memakai sudut ini sebagai nol.
+        self.mount = (float(cfg.get("mount_yaw_deg", 0.0)), float(cfg.get("mount_pitch_deg", 0.0)),
+                      float(cfg.get("mount_roll_deg", 0.0)))
+        self.yaw0, self.pitch0, self.roll0 = self.mount
         self.done = False
         self.active = auto_start
         self.status = "menunggu wajah" if auto_start else "baseline populasi"
@@ -27,7 +31,7 @@ class Calibration:
         self.active = False
         self.done = False
         self.ear_baseline = self.pop_ear
-        self.yaw0 = self.pitch0 = self.roll0 = 0.0
+        self.yaw0, self.pitch0, self.roll0 = self.mount
         self.status = "baseline populasi"
 
     def observe(self, ts_ms: int, raw: dict) -> None:
@@ -81,8 +85,9 @@ class Calibration:
         y0, p0, r0 = float(np.median(yaw)), float(np.median(pitch)), float(np.median(roll))
         # Pose "lurus" harus masuk akal; tolak jika pengemudi sedang menoleh/miring/menunduk
         # (mis. kalibrasi ulang tidak sengaja saat skenario 19 kepala miring bertahan).
-        if (abs(r0) > self.c.get("max_abs_roll_deg", 15) or abs(y0) > self.c.get("max_abs_yaw_deg", 25)
-                or abs(p0) > self.c.get("max_abs_pitch_deg", 35)):
+        my, mp, mr = self.mount
+        if (abs(r0 - mr) > self.c.get("max_abs_roll_deg", 15) or abs(y0 - my) > self.c.get("max_abs_yaw_deg", 25)
+                or abs(p0 - mp) > self.c.get("max_abs_pitch_deg", 35)):
             self.status = f"kalibrasi ditolak: pose tidak lurus (yaw {y0:+.0f} pitch {p0:+.0f} roll {r0:+.0f})"
             self._maybe_give_up()
             return

@@ -79,6 +79,8 @@ class CabinPipeline:
         self.partial_block = PartialBlock(d09.get("partial"), d09.get("mean_min", 15), d09.get("mean_max", 240))
         self._n = 0
         self._t_first_ms: int | None = None
+        self._last_face_ms: int | None = None
+        self.auto_recalibrations = 0
 
     def process(self, frame: Frame, moving: bool = True) -> CabinState:
         t0 = time.perf_counter()
@@ -95,6 +97,7 @@ class CabinPipeline:
         t1 = time.perf_counter()
         obs = self.face.process(roi_img, frame.ts_ms, off)
         tm["face"] = (time.perf_counter() - t1) * 1000
+        self._auto_recalibrate(obs.present, frame.ts_ms)
         sig = self.signals.update(obs, frame.ts_ms)
         # D-09 sebagian: perlu status wajah (baseline sel hanya diperbarui saat wajah terlihat)
         if self.partial_block.update(raw, obs.present):
@@ -157,6 +160,17 @@ class CabinPipeline:
         top = min(active, key=self.decision.rank) if active else None
         tm["total"] = (time.perf_counter() - t0) * 1000
         return CabinState(frame, img, obs, sig, stats, blocked, yolo, active, top, actions, tm)
+
+    def _auto_recalibrate(self, face_present: bool, ts_ms: int):
+        """Wajah hilang lama lalu muncul lagi (ganti pengemudi / kembali ke kursi) -> kalibrasi ulang."""
+        after = self.th.get("calibration", {}).get("auto_recalibrate_after_absent_s")
+        if not face_present:
+            return
+        if (after is not None and self._last_face_ms is not None
+                and ts_ms - self._last_face_ms >= float(after) * 1000 and not self.calibration.active):
+            self.calibration.start()
+            self.auto_recalibrations += 1
+        self._last_face_ms = ts_ms
 
     def finish(self, ts_ms: int, video_t_s: float = 0.0) -> list[Action]:
         return self.decision.flush(ts_ms, {"t_video_s": round(video_t_s, 3)})
