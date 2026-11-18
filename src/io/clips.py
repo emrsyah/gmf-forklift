@@ -2,7 +2,8 @@
 
 Ring buffer ~pre_s detik (JPEG di RAM, fps rekaman). Saat event `start`:
 - snapshot JPG langsung (dengan teks waktu + kode),
-- klip = pre_s sebelum + post_s sesudah, di-encode di thread terpisah:
+- klip = pre_s sebelum event sampai kondisi selesai + post_end_s (clip_until=end, maks max_s), atau
+  pre_s sebelum + post_s sesudah (clip_until=fixed), di-encode di thread terpisah:
   H.264 yuv420p + `-movflags +faststart` (ffmpeg) agar bisa diputar langsung di browser.
 Fallback ke encoder OpenCV (mp4v) jika ffmpeg tidak ada — catat bahwa mp4v belum tentu bisa diputar browser.
 """
@@ -44,6 +45,15 @@ class ClipRecorder:
         self.root = resolve_path(root)
         self.pre_ms = float(cfg.get("pre_s", 10)) * 1000
         self.post_ms = float(cfg.get("post_s", 5)) * 1000
+        # "end" (brief MINERVA): klip = pre_s sebelum event sampai kondisi selesai (+ post_end_s), maks max_s.
+        # "fixed" (lama): pre_s sebelum + post_s sesudah event start.
+        self.until = cfg.get("clip_until", "fixed")
+        self.post_end_ms = float(cfg.get("post_end_s", 2)) * 1000
+        self.max_ms = float(cfg.get("max_s", 60)) * 1000
+        # kode yang snapshot-nya diambil dari buffer SEBELUM kondisi mulai (D-09: frame terakhir sebelum lensa
+        # tertutup, bukan gambar tangan/hitam)
+        self.pre_snap_codes = set(cfg.get("snapshot_before_condition_codes", ["D09"]))
+        self.pre_snap_ms = float(cfg.get("snapshot_before_condition_s", 0.5)) * 1000
         self.fps = float(cfg.get("fps", 15))
         self.max_w = int(cfg.get("width", 1280))
         self.quality = int(cfg.get("jpeg_quality", 80))
@@ -54,6 +64,8 @@ class ClipRecorder:
         self._last_keep_ms: int | None = None
         self.label = ""
         self.done_paths: list[Path] = []
+        # dipanggil (dari thread encoder) setelah klip selesai: dict info media -> mis. sinks.media
+        self.on_done = None
 
     def _encode_jpg(self, img: np.ndarray) -> bytes:
         if img.shape[1] > self.max_w:
@@ -91,15 +103,47 @@ class ClipRecorder:
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{event['event_id']}.jpg", folder / f"{event['event_id']}.mp4"
 
+    def _pre_condition_jpg(self, event: dict) -> bytes | None:
+        """Frame buffer terakhir sebelum kondisi mulai (dikurangi margin), atau None."""
+        t0 = event.get("ts_condition_start_ms") or event["ts_event_ms"]
+        cut = t0 - self.pre_snap_ms
+        best = None
+        for ts, jpg in self.buf:
+            if ts <= cut:
+                best = jpg
+        return best
+
     def on_event_start(self, event: dict, img: np.ndarray) -> dict:
         """Simpan snapshot sekarang, jadwalkan klip. Mengembalikan path relatif untuk event JSON."""
         snap, clip = self.paths_for(event)
         label = f"{event['code']} {event['level']}"
-        cv2.imwrite(str(snap), stamp(img, event["ts_event_ms"], label))
+        pre = self._pre_condition_jpg(event) if event.get("code") in self.pre_snap_codes else None
+        if pre is not None:
+            snap.write_bytes(pre)
+        else:
+            cv2.imwrite(str(snap), stamp(img, event["ts_event_ms"], label))
         frames = list(self.buf)
-        self.pending.append(_PendingClip(event, frames, int(event["ts_event_ms"] + self.post_ms), clip))
-        rel = lambda p: p.relative_to(self.root.parent).as_posix() if self.root.parent in p.parents else str(p)
-        return {"snapshot_path": rel(snap), "clip_path": rel(clip)}
+        t_first = frames[0][0] if frames else event["ts_event_ms"]
+        if self.until == "end":
+            until = t_first + self.max_ms           # batas atas; dipendekkan oleh on_event_end
+        else:
+            until = event["ts_event_ms"] + self.post_ms
+        pc = _PendingClip(event, frames, int(until), clip)
+        pc.snap_path = snap
+        self.pending.append(pc)
+        return {"snapshot_path": self._rel(snap), "clip_path": self._rel(clip),
+                "snapshot_before_condition": pre is not None}
+
+    def _rel(self, p: Path) -> str:
+        return p.relative_to(self.root.parent).as_posix() if self.root.parent in p.parents else str(p)
+
+    def on_event_end(self, event: dict) -> None:
+        """Mode clip_until=end: klip berhenti post_end_s setelah kondisi selesai (tetap <= max_s)."""
+        if self.until != "end":
+            return
+        for p in self.pending:
+            if p.event.get("event_id") == event.get("event_id"):
+                p.until_ms = min(p.until_ms, int(event["ts_event_ms"] + self.post_end_ms))
 
     def _write_clip(self, p: _PendingClip):
         if not p.frames:
@@ -124,8 +168,24 @@ class ClipRecorder:
                     vw.write(cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR))
                 vw.release()
             self.done_paths.append(p.clip_path)
+            ok = p.clip_path.exists() and p.clip_path.stat().st_size > 0
         except Exception as e:  # jangan pernah menjatuhkan pipeline karena klip
             print(f"[clips] gagal menulis {p.clip_path}: {e}")
+            ok = False
+        if self.on_done is not None:
+            try:
+                ev = p.event
+                self.on_done({
+                    "event_id": ev.get("event_id"), "device_id": ev.get("device_id"),
+                    "code": ev.get("code"), "level": ev.get("level"), "ts_event_ms": ev["ts_event_ms"],
+                    "snapshot_path": self._rel(getattr(p, "snap_path", p.clip_path.with_suffix(".jpg"))),
+                    "clip_path": self._rel(p.clip_path) if ok else None,
+                    "clip_ok": ok,
+                    "clip_start_ms": p.frames[0][0], "clip_end_ms": p.frames[-1][0],
+                    "clip_duration_s": round((p.frames[-1][0] - p.frames[0][0]) / 1000, 2),
+                })
+            except Exception as e:
+                print(f"[clips] callback media gagal: {e}")
 
     def flush(self, timeout: float = 120.0):
         """Tulis semua klip yang masih menunggu (akhir sesi) dan tunggu thread selesai."""

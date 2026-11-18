@@ -102,11 +102,30 @@ sink:
     topic: forklift/{device_id}/events   # format topik final dari tim Minerva (pertanyaan terbuka #3)
     qos: 1
     spool_dir: events/_spool              # antrean lokal jika broker tidak tersambung
+    # Status perangkat (Last Will retained: broker menerbitkan "offline" jika Jetson putus tanpa pamit)
+    status_topic: forklift/{device_id}/status
+    heartbeat_topic: forklift/{device_id}/heartbeat
+    media_topic: forklift/{device_id}/media   # info snapshot/klip setelah selesai ditulis (nanti + URL unggah)
+    keepalive_s: 30                           # broker menyatakan offline ~1,5x keepalive setelah putus
+    username: null
+    password_env: null                        # nama variabel lingkungan berisi kata sandi (bukan sandinya)
+
+heartbeat:
+  enabled: true
+  interval_s: 5
+  clock_check_s: 60         # cek NTP (timedatectl) tiap 60 s; null di Windows
 
 recording:
   enabled: true
   pre_s: 10
-  post_s: 5
+  post_s: 5                 # dipakai jika clip_until: fixed
+  # Brief MINERVA (2026-11-18): klip 10 s sebelum t0 sampai kondisi selesai, maks 60 s.
+  clip_until: end           # end | fixed
+  post_end_s: 2             # sesudah event end
+  max_s: 60
+  # Snapshot dari frame SEBELUM kondisi mulai (D-09: frame terakhir sebelum kamera tertutup)
+  snapshot_before_condition_codes: [D09]
+  snapshot_before_condition_s: 0.5
   fps: 15
   width: 1280               # frame lebih besar diperkecil
   jpeg_quality: 80

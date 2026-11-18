@@ -93,6 +93,35 @@ def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety A
             break
 
 
+def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None) -> list[dict]:
+    """Jalankan aksi keputusan satu frame. Buzzer DULU, baru event, supaya event `start` membawa
+    `ts_buzzer_ms` (waktu buzzer kabin benar-benar diperintahkan; bahan ukur K5 kabin)."""
+    clock = now_ms or (lambda: int(time.time() * 1000))
+    buzz_ts: dict[str, int] = {}
+    for act in actions:
+        if act.kind == "buzz":
+            alerter.buzz(act.payload["level"], act.payload["code"], act.payload["first"])
+            if act.payload["first"]:
+                buzz_ts[act.payload["code"]] = clock()
+    sent = []
+    for act in actions:
+        if act.kind != "event":
+            continue
+        ev = act.payload
+        if ev["phase"] == "start":
+            if ev["code"] in buzz_ts:
+                ev["ts_buzzer_ms"] = buzz_ts[ev["code"]]
+            if recorder is not None and image is not None:
+                ev.update(recorder.on_event_start(ev, image))
+        elif ev["phase"] == "end" and recorder is not None:
+            recorder.on_event_end(ev)
+        sinks.send(ev)
+        sent.append(ev)
+        print(f"[event] {ev['phase']:5s} {ev['code']} {ev['level']} id={ev['event_id']} "
+              f"t={ev.get('t_video_s')}", flush=True)
+    return sent
+
+
 def main(argv=None):
     a = parse_args(argv)
     overrides: dict = {}
@@ -137,6 +166,10 @@ def main(argv=None):
     rec_cfg = rt.get("recording", {})
     recorder = ClipRecorder(rec_cfg, rt["sink"]["file"].get("dir", "events")) \
         if rec_cfg.get("enabled", True) and not a.no_record else None
+    if recorder is not None:
+        recorder.on_done = sinks.media            # info bukti (klip selesai) -> media.jsonl / topik media
+    from src.io.heartbeat import Heartbeat
+    hb = Heartbeat(rt.get("heartbeat"), rt.get("device_id", "laptop-dev"), rt.get("model_versions"))
 
     fps, n, t0 = 0.0, 0, time.monotonic()
     last = None
@@ -167,16 +200,14 @@ def main(argv=None):
                 if pipe.calibration.status != cal_status:   # log setiap perubahan status kalibrasi
                     cal_status = pipe.calibration.status
                     print(f"[kalibrasi] t={frame.video_t_s:.1f}s {cal_status}", flush=True)
-                for act in st.actions:
-                    if act.kind == "buzz":
-                        alerter.buzz(act.payload["level"], act.payload["code"], act.payload["first"])
-                    elif act.kind == "event":
-                        ev = act.payload
-                        if ev["phase"] == "start" and recorder is not None:
-                            ev.update(recorder.on_event_start(ev, st.image))
-                        sinks.send(ev)
-                        print(f"[event] {ev['phase']:5s} {ev['code']} {ev['level']} id={ev['event_id']} "
-                              f"t={ev.get('t_video_s')}")
+                handle_actions(st.actions, alerter, sinks, recorder, st.image)
+                now_ms = int(time.time() * 1000)
+                if hb.due(now_ms):
+                    op = pipe.decision.open
+                    sinks.heartbeat(hb.build(
+                        now_ms, fps=fps, camera_ok=not st.blocked_frame, face_present=st.sig.face_present,
+                        calibration=pipe.calibration.status, yolo=pipe.yolo_status,
+                        open_events=[op.code] if op is not None else []))
                 n += 1
                 n_log += 1
                 if st.sig.face_present:
@@ -224,8 +255,7 @@ def main(argv=None):
                     break
     finally:
         if last is not None:
-            for act in pipe.finish(last.frame.ts_ms, last.frame.video_t_s):
-                sinks.send(act.payload)
+            handle_actions(pipe.finish(last.frame.ts_ms, last.frame.video_t_s), alerter, sinks, recorder, None)
         if recorder is not None:
             recorder.flush()
         sinks.close()
