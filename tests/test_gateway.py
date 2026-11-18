@@ -52,6 +52,49 @@ def test_duplicate_resend_is_not_a_new_event(tmp_path):
     assert gw.ingest(_ev(1, state="ended"))[0]["seq"] == 2
 
 
+def test_same_event_id_from_new_process_is_not_a_duplicate(tmp_path):
+    # replay video yang sama / CV restart -> event_id sama, run_id beda -> kejadian baru, bukan duplikat
+    gw = _gw(tmp_path)
+    assert gw.ingest(dict(_ev(1), run_id="a"))[0]["seq"] == 1
+    assert gw.ingest(dict(_ev(1), run_id="a")) == []
+    assert gw.ingest(dict(_ev(1), run_id="b"))[0]["seq"] == 2
+    assert "run_id" not in json.loads(gw.render(gw.buffer[-1], "h:8787"))
+
+
+def test_torn_last_line_does_not_swallow_next_event(tmp_path):
+    gw = _gw(tmp_path)
+    gw.ingest(_ev(1))
+    with open(gw.events_path, "a", encoding="utf-8") as f:
+        f.write('{"type": "event", "seq": 2, "co')             # listrik putus di tengah tulis
+    gw.ingest(_ev(3))
+    gw2 = _gw(tmp_path)
+    assert [e["event_id"] for e in gw2.buffer] == ["e1", "e3"]
+
+
+def test_replay_max_age_and_media_resend(tmp_path):
+    now = [T]
+    root = tmp_path / "events"
+    gw = Gateway({"state_dir": str(tmp_path / "gw"), "media": {"root": str(root)}}, "FL-01", now_ms=lambda: now[0])
+    gw.ingest(dict(_ev(1), clipPath=str(root / "a.mp4")))
+    now[0] += 300_000                                          # 5 menit kemudian
+    gw.ingest(_ev(2))
+    out = gw.on_dashboard({"type": "replay", "fromSeq": 0, "maxAgeS": 120})
+    assert [m["seq"] for m in out] == [2]                       # alarm lama tidak dihidupkan lagi
+    gw.ingest({"type": "media", "event_id": "e1", "clip_ok": True, "clip_path": str(root / "a.mp4")})
+    out = gw.on_dashboard({"type": "replay", "fromSeq": 3})     # dashboard sempat terputus saat klip selesai
+    assert any(m["type"] == "media" and m["seq"] == 1 for m in out)
+
+
+def test_storage_error_still_delivers_event(tmp_path, monkeypatch):
+    gw = _gw(tmp_path)
+
+    def boom(*a, **k):
+        raise OSError("No space left on device")
+    monkeypatch.setattr(gw, "_save_seq", boom)
+    out = gw.ingest(_ev(1))
+    assert out and out[0]["seq"] == 1 and gw.telemetry()["storageOk"] is False
+
+
 def test_event_without_code_rejected_and_passthrough(tmp_path):
     gw = _gw(tmp_path)
     assert gw.ingest({"type": "event"}) == []

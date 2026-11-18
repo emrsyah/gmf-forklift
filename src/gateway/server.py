@@ -28,18 +28,36 @@ class GatewayServer:
         self.c = cfg
         self.dash: dict = {}                      # koneksi -> host yang dipakai dashboard (untuk URL media)
         self.max_bytes = int(cfg.get("max_message_kb", 512)) * 1024
+        self.frame_backlog = int(cfg.get("frame_drop_backlog_kb", 16)) * 1024
+        self.frames_dropped = 0
         self.media_httpd = None
 
+    @staticmethod
+    def _backlog(ws) -> int:
+        try:
+            return ws.transport.get_write_buffer_size()
+        except Exception:
+            return 0
+
     def _send_all(self, msgs: list[dict]):
-        """Kirim ke semua dashboard. Dirender per host (URL media memakai host yang dipakai klien itu)."""
+        """Kirim ke semua dashboard. Dirender per host (URL media memakai host yang dipakai klien itu).
+        broadcast() tidak punya backpressure: frame live dibuang untuk klien yang buffer kirimnya masih
+        penuh (link 5G lambat), supaya event alarm tidak antre di belakang gambar (K5)."""
         if not self.dash or not msgs:
             return
-        groups: dict = {}
-        for ws, host in list(self.dash.items()):
-            groups.setdefault(host, []).append(ws)
         for m in msgs:
-            for host, conns in groups.items():
-                broadcast(conns, self.gw.render(m, host))
+            conns = list(self.dash.items())
+            if m.get("type") == "frame":
+                ok = [ws for ws, _ in conns if self._backlog(ws) <= self.frame_backlog]
+                self.frames_dropped += len(conns) - len(ok)
+                if ok:   # frame tidak punya URL media: serialisasi sekali untuk semua klien
+                    broadcast(ok, self.gw.render(m, None))
+                continue
+            groups: dict = {}
+            for ws, host in conns:
+                groups.setdefault(host, []).append(ws)
+            for host, group in groups.items():
+                broadcast(group, self.gw.render(m, host))
 
     async def dashboard_handler(self, ws):
         host = ws.request.headers.get("Host") if ws.request is not None else None
@@ -51,7 +69,9 @@ class GatewayServer:
                     msg = json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     continue
-                for reply in self.gw.on_dashboard(msg):
+                if not isinstance(msg, dict):
+                    continue
+                for reply in await asyncio.to_thread(self.gw.on_dashboard, msg):
                     await ws.send(self.gw.render(reply, host))
         finally:
             self.dash.pop(ws, None)
@@ -63,7 +83,14 @@ class GatewayServer:
                 msg = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 continue
-            self._send_all(self.gw.ingest(msg))
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("type") in ("event", "media"):
+                # fsync seq + events.jsonl di thread: event loop (frame, telemetri, klien lain) tidak tertahan
+                out = await asyncio.to_thread(self.gw.ingest, msg)
+            else:
+                out = self.gw.ingest(msg)
+            self._send_all(out)
             if msg.get("type") == "event" and msg.get("ack_id") is not None:
                 await ws.send(json.dumps({"type": "ack", "ack_id": msg["ack_id"]}))
 
@@ -72,7 +99,9 @@ class GatewayServer:
         while True:
             await asyncio.sleep(period)
             stats = await asyncio.to_thread(system_stats)
-            self._send_all([self.gw.telemetry(stats)])
+            tel = self.gw.telemetry(stats)
+            tel["framesDropped"] = self.frames_dropped
+            self._send_all([tel])
 
     async def run(self, stop: asyncio.Event | None = None):
         d, p = self.c.get("dashboard", {}), self.c.get("producer", {})

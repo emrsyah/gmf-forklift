@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import uuid
 from collections import deque
 
 from .sinks import EventSink
@@ -45,6 +46,9 @@ class GatewaySink(EventSink):
                  ack_timeout_s: float = 2.0):
         self.url = url
         self.forklift_id = forklift_id
+        # id per start proses: event_id hanya unik dalam satu proses (replay video yang sama, atau CV restart
+        # di detik yang sama, menghasilkan event_id sama) -> dedup gateway memakai (run_id, event_id, state)
+        self.run_id = uuid.uuid4().hex[:12]
         self.retry_s = retry_s
         self.ack_timeout = ack_timeout_s
         self.q: deque = deque(maxlen=max_queue)
@@ -61,7 +65,7 @@ class GatewaySink(EventSink):
     # ------------------------------------------------------------- API sink
     def send(self, event):
         with self._cv:
-            self.q.append(to_contract(event, self.forklift_id))
+            self.q.append(dict(to_contract(event, self.forklift_id), run_id=self.run_id))
             self._cv.notify()
 
     def heartbeat(self, payload):
@@ -74,7 +78,7 @@ class GatewaySink(EventSink):
 
     def media(self, payload):
         with self._cv:
-            self.q.append(dict(payload, type="media"))
+            self.q.append(dict(payload, type="media", run_id=self.run_id))
             self._cv.notify()
 
     def frame(self, payload):

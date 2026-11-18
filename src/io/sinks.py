@@ -177,31 +177,42 @@ class MqttSink(EventSink):
 
 
 class MultiSink(EventSink):
+    """Satu sink gagal (disk penuh, broker error) tidak boleh menghentikan loop CV atau sink lain (K4)."""
+
     def __init__(self, sinks: list[EventSink]):
         self.sinks = sinks
+        self.errors = 0
+
+    def _each(self, method: str, payload):
+        for s in self.sinks:
+            try:
+                getattr(s, method)(payload)
+            except Exception as e:
+                self.errors += 1
+                print(f"[sink] {type(s).__name__}.{method} gagal: {e}", flush=True)
 
     def send(self, event):
-        for s in self.sinks:
-            s.send(event)
+        self._each("send", event)
 
     def heartbeat(self, payload):
-        for s in self.sinks:
-            s.heartbeat(payload)
+        self._each("heartbeat", payload)
 
     def media(self, payload):
-        for s in self.sinks:
-            s.media(payload)
+        self._each("media", payload)
 
     def frame(self, payload):
-        for s in self.sinks:
-            s.frame(payload)
+        self._each("frame", payload)
 
     def wants_frames(self) -> bool:
-        return any(getattr(s, "accepts_frames", False) for s in self.sinks)
+        """Ada sink yang menerima frame live DAN sedang tersambung (encode JPEG tidak sia-sia)."""
+        return any(getattr(s, "accepts_frames", False) and getattr(s, "connected", True) for s in self.sinks)
 
     def close(self):
         for s in self.sinks:
-            s.close()
+            try:
+                s.close()
+            except Exception:
+                pass
 
 
 def make_sinks(cfg: dict, device_id: str) -> MultiSink:
@@ -224,6 +235,8 @@ def make_sinks(cfg: dict, device_id: str) -> MultiSink:
     g = cfg.get("gateway", {})
     if g.get("enabled"):
         from .gateway_sink import GatewaySink
-        sinks.append(GatewaySink(g.get("url", "ws://127.0.0.1:8788"), g.get("forklift_id", "FL-01"),
-                                 retry_s=g.get("retry_s", 2.0), max_queue=g.get("max_queue", 2000)))
+        # paling depan: masuk antrean (cepat, tanpa disk) sebelum sink file
+        sinks.insert(0, GatewaySink(g.get("url", "ws://127.0.0.1:8788"), g.get("forklift_id", "FL-01"),
+                                    retry_s=g.get("retry_s", 2.0), max_queue=g.get("max_queue", 2000),
+                                    ack_timeout_s=g.get("ack_timeout_s", 5.0)))
     return MultiSink(sinks)

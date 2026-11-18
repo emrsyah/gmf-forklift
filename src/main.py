@@ -115,7 +115,10 @@ def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None) -> lis
             if ev["code"] in buzz_ts:
                 ev["ts_buzzer_ms"] = buzz_ts[ev["code"]]
             if recorder is not None and image is not None:
-                ev.update(recorder.on_event_start(ev, image))
+                try:   # disk error pada snapshot tidak boleh menahan event (K4)
+                    ev.update(recorder.on_event_start(ev, image))
+                except Exception as e:
+                    print(f"[clips] snapshot/klip gagal untuk {ev['event_id']}: {e}", flush=True)
         elif ev["phase"] == "end" and recorder is not None:
             recorder.on_event_end(ev)
         sinks.send(ev)
@@ -177,7 +180,7 @@ def main(argv=None):
     from src.io.live import LiveFrames
     hb = Heartbeat(rt.get("heartbeat"), rt.get("device_id", "laptop-dev"), rt.get("model_versions"))
     live = LiveFrames(rt.get("sink", {}).get("gateway", {}).get("live"), "cabin")
-    if not sinks.wants_frames():
+    if not any(getattr(s, "accepts_frames", False) for s in sinks.sinks):
         live.enabled = False
 
     fps, n, t0 = 0.0, 0, time.monotonic()
@@ -242,7 +245,7 @@ def main(argv=None):
                     if (show or recorder or web) else None
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
-                if live.due(now_ms):
+                if live.due(now_ms) and sinks.wants_frames():
                     sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
                 if web is not None:
                     web.publish(vis)

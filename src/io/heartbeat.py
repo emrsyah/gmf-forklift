@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
 import time
 
 
@@ -24,7 +25,7 @@ def ntp_synced() -> bool | None:
 
 class Heartbeat:
     def __init__(self, cfg: dict | None, device_id: str, model_versions: dict | None = None,
-                 clock_fn=ntp_synced):
+                 clock_fn=ntp_synced, sync: bool = False):
         cfg = cfg or {}
         self.enabled = bool(cfg.get("enabled", True))
         self.interval_ms = float(cfg.get("interval_s", 5)) * 1000
@@ -32,6 +33,7 @@ class Heartbeat:
         self.device_id = device_id
         self.model_versions = dict(model_versions or {})
         self._clock_fn = clock_fn
+        self._sync = sync                        # True hanya untuk unit test
         self._clock: bool | None = None
         self._clock_at: float | None = None
         self._last_ms: float | None = None
@@ -41,9 +43,17 @@ class Heartbeat:
         return self.enabled and (self._last_ms is None or now_ms - self._last_ms >= self.interval_ms)
 
     def _clock_synced(self, now_ms: int) -> bool | None:
+        # subprocess (timedatectl, s.d. 2 s) di thread latar: loop CV tidak pernah menunggu
         if self._clock_at is None or now_ms - self._clock_at >= self.clock_check_ms:
-            self._clock = self._clock_fn()
             self._clock_at = now_ms
+
+            def check():
+                self._clock = self._clock_fn()
+
+            if self._sync:
+                check()
+            else:
+                threading.Thread(target=check, daemon=True, name="ntp-check").start()
         return self._clock
 
     def build(self, now_ms: int, *, fps: float, camera_ok: bool, face_present: bool,

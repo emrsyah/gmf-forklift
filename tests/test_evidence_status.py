@@ -112,6 +112,30 @@ def test_media_callback_after_clip_written(tmp_path):
     assert list(tmp_path.rglob("media.jsonl"))
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg tidak ada")
+def test_slow_pipeline_clip_keeps_real_duration(tmp_path):
+    # pipeline 9 fps < fps rekaman 15 -> durasi video harus tetap ~waktu nyata, bukan dipercepat
+    import subprocess
+    rec = _rec(tmp_path, fps=15, pre_s=2, max_s=60, post_end_s=0.5)
+    ev = {"event_id": "slow", "ts_event_ms": T + 2000, "code": "D02", "level": "A-03"}
+    step = 111                                               # ~9 fps
+    for i in range(60):
+        ts = T + i * step
+        rec.push(_img(100), ts)
+        if ev.get("_started") is None and ts >= T + 2000:
+            ev["_started"] = True
+            rec.on_event_start(ev, _img(100))
+        if ts >= T + 5000 and ev.get("_ended") is None:
+            ev["_ended"] = True
+            rec.on_event_end({"event_id": "slow", "ts_event_ms": ts})
+    rec.flush()
+    p = rec.done_paths[0]
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                str(p)], capture_output=True, text=True).stdout.strip())
+    frames_span = 5.0 + 0.5 - (2.0 - 2.0)                     # ~0..5.5 s dari awal buffer
+    assert abs(dur - frames_span) < 0.8, dur
+
+
 class _Alerter:
     def __init__(self):
         self.calls = []
@@ -130,7 +154,7 @@ def test_ts_buzzer_attached_to_start_event():
 
 
 def test_heartbeat_interval_and_fields():
-    hb = Heartbeat({"interval_s": 5, "clock_check_s": 60}, "dev", {"cabin": "v1"}, clock_fn=lambda: True)
+    hb = Heartbeat({"interval_s": 5, "clock_check_s": 60}, "dev", {"cabin": "v1"}, clock_fn=lambda: True, sync=True)
     assert hb.due(T)
     p = hb.build(T, fps=14.96, camera_ok=True, face_present=False, calibration="ok", yolo="on")
     assert p["clock_synced"] is True and p["fps"] == 15.0 and p["device_id"] == "dev"

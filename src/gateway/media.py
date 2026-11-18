@@ -46,7 +46,8 @@ def make_handler(root: Path):
             self.send_header("Content-Length", str(length))
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Cache-Control", "private, max-age=3600")
+            # 404/416 jangan di-cache: file bisa muncul sebentar lagi (klip ditulis setelah kondisi selesai)
+            self.send_header("Cache-Control", "private, max-age=3600" if code in (200, 206) else "no-store")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()

@@ -27,7 +27,7 @@ _CODE_RE = re.compile(r"^([A-Z])-?(\d{2})$")
 # pesan produsen yang diteruskan apa adanya ke dashboard (ditambah forkliftId)
 PASSTHROUGH = {"gnss", "ups", "frame"}
 # field internal yang tidak dikirim ke dashboard (diganti URL)
-_PRIVATE = {"snapshotPath", "clipPath", "ack_id"}
+_PRIVATE = {"snapshotPath", "clipPath", "ack_id", "run_id"}
 
 
 def normalize_code(code: str) -> str:
@@ -54,6 +54,7 @@ class Gateway:
         self.media_port = int(m.get("port", 8789))
         self.media_public = m.get("public_base_url")   # null = http://<host dashboard>:<port>
         self._lock = threading.Lock()
+        self.storage_error: str | None = None
         self.seq = self._load()
 
     # ---------------------------------------------------------------- persistensi
@@ -87,26 +88,40 @@ class Gateway:
         os.replace(tmp, self.seq_path)
 
     def _append(self, rec: dict):
+        # baris terakhir bisa terpotong (listrik putus) -> mulai di baris baru, supaya record ini tidak ikut rusak
+        torn = False
+        if self.events_path.exists() and self.events_path.stat().st_size > 0:
+            with open(self.events_path, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                torn = f.read(1) != b"\n"
         with open(self.events_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(("\n" if torn else "") + json.dumps(rec, ensure_ascii=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
 
     def _trim_events_file(self):
-        # file tidak tumbuh tanpa batas: simpan 2x ukuran buffer
+        # file tidak tumbuh tanpa batas: simpan 2x ukuran buffer; tulis atomik (tmp + replace)
         keep = self.buffer.maxlen or 500
         if self.seq % keep == 0 and self.events_path.exists():
             lines = self.events_path.read_text(encoding="utf-8").splitlines()[-2 * keep:]
-            self.events_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            tmp = self.events_path.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.events_path)
 
     def log(self, direction: str, msg: dict):
         """Log sesi JSONL: semua event, shown/handled, replay, media. Cadangan Lembar A/B (jetson-scope 3.9)."""
         d = datetime.now().strftime("%Y-%m-%d")
         p = self.dir / "log" / f"{d}.jsonl"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"t_gateway_ms": self.now_ms(), "dir": direction, "msg": msg},
-                               ensure_ascii=False) + "\n")
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"t_gateway_ms": self.now_ms(), "dir": direction, "msg": msg},
+                                   ensure_ascii=False) + "\n")
+        except OSError as e:                       # log tidak boleh menghentikan pengiriman alarm
+            self.storage_error = str(e)
 
     # ---------------------------------------------------------------- URL bukti
     def media_rel(self, path: str | None) -> str | None:
@@ -152,21 +167,30 @@ class Gateway:
             if not msg.get("code"):
                 self.log("reject", msg)
                 return []
-            key = (msg.get("event_id"), msg.get("state", "started"))
+            key = (msg.get("run_id"), msg.get("event_id"), msg.get("state", "started"))
             with self._lock:
-                # kirim ulang dari produsen (ack hilang) -> jangan jadi kejadian kedua di dashboard
-                if key[0] is not None and any((e.get("event_id"), e.get("state")) == key for e in self.buffer):
+                # kirim ulang dari produsen (ack hilang) -> jangan jadi kejadian kedua di dashboard.
+                # run_id: event_id hanya unik dalam satu proses produsen.
+                if key[1] is not None and any((e.get("run_id"), e.get("event_id"), e.get("state")) == key
+                                              for e in self.buffer):
                     self.log("duplicate", msg)
                     return []
                 self.seq += 1
                 ev = {k: v for k, v in msg.items() if v is not None and k != "ack_id"}
                 ev.update(type="event", forkliftId=msg.get("forkliftId") or self.forklift_id, seq=self.seq,
-                          code=normalize_code(msg["code"]), state=msg.get("state", "started"))
+                          code=normalize_code(msg["code"]), state=msg.get("state", "started"),
+                          _t_gw=self.now_ms())          # waktu terima gateway (replay maxAgeS); tidak dikirim
                 if ev.get("clipPath"):
                     ev["clipReady"] = False         # klip ditulis setelah kondisi selesai
-                self._save_seq()                   # seq disimpan SEBELUM dikirim
-                self._append(ev)
-                self._trim_events_file()
+                try:
+                    self._save_seq()               # seq disimpan SEBELUM dikirim
+                    self._append(ev)
+                    self._trim_events_file()
+                    self.storage_error = None
+                except OSError as e:
+                    # disk penuh / SD read-only: alarm TETAP dikirim (K4); replay setelah restart terganggu
+                    self.storage_error = str(e)
+                    print(f"[gateway] gagal menyimpan seq/event: {e}", flush=True)
                 self.buffer.append(ev)
             self.log("out", ev)
             return [ev]
@@ -197,16 +221,26 @@ class Gateway:
         if not eid or not msg.get("clip_ok"):
             return []
         with self._lock:
-            start = next((e for e in self.buffer if e.get("event_id") == eid and e.get("state") == "started"), None)
+            run = msg.get("run_id")
+            start = next((e for e in reversed(self.buffer) if e.get("event_id") == eid
+                          and e.get("run_id") == run and e.get("state") == "started"), None)
             if start is None:
                 return []
             upd = {"_media_for": start["seq"], "clipPath": msg.get("clip_path"),
                    "clipDurationS": msg.get("clip_duration_s")}
             self._apply_media(start["seq"], upd)
-            self._append(upd)
-        return [{"type": "media", "forkliftId": start["forkliftId"], "seq": start["seq"], "code": start["code"],
-                 "event_id": eid, "snapshotPath": start.get("snapshotPath"), "clipPath": start.get("clipPath"),
-                 "clipDurationS": start.get("clipDurationS")}]
+            try:
+                self._append(upd)
+            except OSError as e:
+                self.storage_error = str(e)
+        return [self._media_msg(start)]
+
+    @staticmethod
+    def _media_msg(start: dict) -> dict:
+        return {"type": "media", "forkliftId": start["forkliftId"], "seq": start["seq"], "code": start["code"],
+                "event_id": start.get("event_id"), "snapshotPath": start.get("snapshotPath"),
+                "clipPath": start.get("clipPath"), "clipReady": start.get("clipReady", False),
+                "clipDurationS": start.get("clipDurationS")}
 
     # ---------------------------------------------------------------- dashboard -> gateway
     def on_dashboard(self, msg: dict) -> list[dict]:
@@ -222,10 +256,20 @@ class Gateway:
                 from_seq = int(msg.get("fromSeq", 0))
             except (TypeError, ValueError):
                 from_seq = 0
+            # maxAgeS: dashboard yang baru dibuka/di-reload cukup minta kejadian beberapa menit terakhir,
+            # bukan 500 alarm lama (yang akan muncul lagi sebagai "perlu tindakan")
+            max_age = msg.get("maxAgeS")
+            cutoff = self.now_ms() - float(max_age) * 1000 if isinstance(max_age, (int, float)) else None
             with self._lock:
-                out = [dict(ev) for ev in self.buffer if ev.get("seq", 0) >= from_seq]
-            self.log("replay", {"fromSeq": from_seq, "count": len(out)})
-            return out
+                out = [dict(ev) for ev in self.buffer if ev.get("seq", 0) >= from_seq
+                       and (cutoff is None or ev.get("_t_gw", 0) >= cutoff)]
+                # klip yang selesai saat dashboard terputus: event-nya (seq lama) tidak ikut replay,
+                # jadi kirim ulang info media untuk event berklip terakhir (idempoten di dashboard)
+                n_media = int(self.c.get("replay_media_last", 50))
+                media = [self._media_msg(ev) for ev in list(self.buffer)[-n_media:]
+                         if ev.get("state") == "started" and ev.get("clipReady") and ev.get("seq", 0) < from_seq]
+            self.log("replay", {"fromSeq": from_seq, "maxAgeS": max_age, "count": len(out), "media": len(media)})
+            return out + media
         self.log("unknown_in", msg)
         return []
 
@@ -248,6 +292,7 @@ class Gateway:
         m["cabinAlive"] = cab is not None
         m["ntpSynced"] = cab.get("clock_synced") if cab else None
         m["seq"] = self.seq
+        m["storageOk"] = self.storage_error is None
         return m
 
 

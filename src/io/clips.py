@@ -9,6 +9,7 @@ Fallback ke encoder OpenCV (mp4v) jika ffmpeg tidak ada — catat bahwa mp4v bel
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -58,6 +59,12 @@ class ClipRecorder:
         self.max_w = int(cfg.get("width", 1280))
         self.quality = int(cfg.get("jpeg_quality", 80))
         self.ffmpeg = shutil.which(cfg.get("ffmpeg", "ffmpeg"))
+        # batasi bitrate (klip diunduh lewat uplink 5G yang sama dengan alarm) dan thread encoder (CPU CV)
+        self.x264_args = [str(a) for a in cfg.get("x264_args", ["-crf", "26", "-maxrate", "1500k",
+                                                                "-bufsize", "3000k", "-threads", "2"])]
+        if self.ffmpeg is None:
+            print("[clips] PERINGATAN: ffmpeg tidak ada -> klip mp4v (belum tentu bisa diputar browser, K7)",
+                  flush=True)
         self.buf: deque = deque()
         self.pending: list[_PendingClip] = []
         self.threads: list[threading.Thread] = []
@@ -91,6 +98,8 @@ class ClipRecorder:
 
     def _check_pending(self, ts_ms: int):
         ready = [p for p in self.pending if ts_ms >= p.until_ms]
+        if ready:
+            self.threads = [t for t in self.threads if t.is_alive()]
         for p in ready:
             self.pending.remove(p)
             th = threading.Thread(target=self._write_clip, args=(p,), daemon=True)
@@ -120,8 +129,8 @@ class ClipRecorder:
         pre = self._pre_condition_jpg(event) if event.get("code") in self.pre_snap_codes else None
         if pre is not None:
             snap.write_bytes(pre)
-        else:
-            cv2.imwrite(str(snap), stamp(img, event["ts_event_ms"], label))
+        elif not cv2.imwrite(str(snap), stamp(img, event["ts_event_ms"], label)):
+            print(f"[clips] snapshot gagal ditulis: {snap}")
         frames = list(self.buf)
         t_first = frames[0][0] if frames else event["ts_event_ms"]
         if self.until == "end":
@@ -145,33 +154,61 @@ class ClipRecorder:
             if p.event.get("event_id") == event.get("event_id"):
                 p.until_ms = min(p.until_ms, int(event["ts_event_ms"] + self.post_end_ms))
 
+    def clip_fps(self, frames: list) -> float:
+        """fps NYATA klip. Jika pipeline lebih lambat dari fps rekaman (mis. 9 fps di CPU), frame lebih sedikit;
+        encode dengan fps nominal akan mempercepat video dan memendekkan durasinya (bukti K7 jadi salah)."""
+        if len(frames) < 2:
+            return self.fps
+        span_s = (frames[-1][0] - frames[0][0]) / 1000.0
+        if span_s <= 0:
+            return self.fps
+        return max(1.0, min(self.fps, (len(frames) - 1) / span_s))
+
     def _write_clip(self, p: _PendingClip):
         if not p.frames:
             return
+        fps = self.clip_fps(p.frames)
+        # tulis ke file sementara lalu rename: dashboard/HTTP tidak pernah melihat MP4 setengah jadi
+        tmp = p.clip_path.with_name(p.clip_path.stem + ".part.mp4")
+        ok = False
+        proc = None
         try:
             if self.ffmpeg:
                 cmd = [self.ffmpeg, "-y", "-loglevel", "error", "-f", "image2pipe", "-c:v", "mjpeg",
-                       "-framerate", str(self.fps), "-i", "-",
+                       "-framerate", f"{fps:.3f}", "-i", "-",
                        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2,scale=out_range=tv,format=yuv420p",
-                       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                       "-color_range", "tv", "-movflags", "+faststart", str(p.clip_path)]
+                       "-c:v", "libx264", "-preset", "ultrafast", *self.x264_args, "-pix_fmt", "yuv420p",
+                       "-color_range", "tv", "-movflags", "+faststart", str(tmp)]
                 proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
                 for _, jpg in p.frames:
                     proc.stdin.write(jpg)
                 proc.stdin.close()
-                proc.wait(timeout=120)
+                ok = proc.wait(timeout=120) == 0
             else:
                 first = cv2.imdecode(np.frombuffer(p.frames[0][1], np.uint8), cv2.IMREAD_COLOR)
                 h, w = first.shape[:2]
-                vw = cv2.VideoWriter(str(p.clip_path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h))
+                vw = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
                 for _, jpg in p.frames:
                     vw.write(cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR))
                 vw.release()
-            self.done_paths.append(p.clip_path)
-            ok = p.clip_path.exists() and p.clip_path.stat().st_size > 0
+                ok = True
+            ok = ok and tmp.exists() and tmp.stat().st_size > 0
+            if ok:
+                os.replace(tmp, p.clip_path)
+                self.done_paths.append(p.clip_path)
+            else:
+                print(f"[clips] encoder gagal untuk {p.clip_path}")
         except Exception as e:  # jangan pernah menjatuhkan pipeline karena klip
             print(f"[clips] gagal menulis {p.clip_path}: {e}")
             ok = False
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+        finally:
+            if not ok and tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
         if self.on_done is not None:
             try:
                 ev = p.event

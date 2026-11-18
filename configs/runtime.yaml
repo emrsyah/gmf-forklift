@@ -138,6 +138,10 @@ gateway:
   telemetry_s: 2
   status_fresh_s: 6                          # status CV lebih tua dari ini -> fpsCabin 0, cabinAlive false
   max_message_kb: 512
+  # Frame live dibuang untuk dashboard yang buffer kirimnya > ini (5G lambat): alarm tidak antre di belakang
+  # gambar. Di Linux, buffer kernel bisa menyembunyikan antrean; cek framesDropped di telemetri saat uji 5G.
+  frame_drop_backlog_kb: 16
+  replay_media_last: 50          # replay juga mengirim ulang info klip N event terakhir
   # Bukti kejadian (K7): snapshot/klip disajikan read-only lewat HTTP, URL-nya ikut di event
   # (snapshotUrl saat mulai; clipUrl lewat pesan `media` setelah klip selesai ditulis).
   media:
@@ -166,7 +170,10 @@ recording:
   fps: 15
   width: 1280               # frame lebih besar diperkecil
   jpeg_quality: 80
-  ffmpeg: ffmpeg            # path ffmpeg; fallback ke encoder OpenCV jika tidak ada
+  ffmpeg: ffmpeg            # path ffmpeg; fallback ke encoder OpenCV jika tidak ada (mp4v: browser belum tentu bisa)
+  # klip diunduh lewat uplink 5G yang sama dengan alarm -> batasi bitrate; thread encoder dibatasi agar FPS CV
+  # tidak turun tajam setelah alarm (Orin Nano: x264 software, tanpa encoder hardware)
+  x264_args: [-crf, "26", -maxrate, 1500k, -bufsize, 3000k, -threads, "2"]
 
 ui:
   show: true
