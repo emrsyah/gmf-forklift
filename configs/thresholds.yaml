@@ -197,6 +197,23 @@ D09_camera_block:
   mean_max: 240
   hold_s: 1.0
   downscale_px: 160           # frame diperkecil dulu agar murah dihitung
+  # Lensa tertutup SEBAGIAN (src/cabin/camblock.py PartialBlock): grid sel, sel "tertutup" jika variansi
+  # Laplacian-nya turun ke <= drop_ratio x baseline sel itu (baseline diambil saat wajah terlihat) atau sel
+  # sangat gelap/terang. Sel yang baseline-nya sudah rata (< min_base_lap, mis. dinding polos) diabaikan.
+  # Aktif jika fraksi sel tertutup >= frac_min DAN wajah tidak terdeteksi (syarat indikator D-09).
+  # Nilai awal, BELUM dikalibrasi dengan rekaman; risiko alarm palsu: pengemudi keluar frame (uji di panduan).
+  partial:
+    enabled: true
+    grid: [4, 4]
+    downscale_px: 160
+    drop_ratio: 0.25
+    min_base_lap: 40
+    min_cells: 4
+    # 0.6 -> 0.45 (2026-11-18, SATU rekaman webcam P1 uji_yawn_P1): tutup 3/4 = 0.50-0.62, tutup 1/2 =
+    # 0.25-0.50, keluar frame (kursi kosong) maks 0.19, gosok mata maks 0.12. Belum divalidasi orang/kamera lain.
+    frac_min: 0.45
+    baseline_alpha: 0.05
+    warmup_frames: 15
 
 D10_ppe:
   conf: 0.40

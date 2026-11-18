@@ -11,7 +11,7 @@ from src.decision import Action, DecisionEngine
 from src.preprocess import crop_roi, simulate_nir
 
 from .calibration import Calibration
-from .camblock import frame_stats, is_blocked
+from .camblock import PartialBlock, frame_stats, is_blocked
 from .face import FaceObs
 from .indicators import IndicatorInput, build_indicators
 from .signals import FaceSignals, SignalExtractor
@@ -75,6 +75,8 @@ class CabinPipeline:
         # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
         self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
         self.phone_crop = PhoneCrop(thresholds.get("D06_phone", {}).get("crop"))
+        d09 = thresholds.get("D09_camera_block", {})
+        self.partial_block = PartialBlock(d09.get("partial"), d09.get("mean_min", 15), d09.get("mean_max", 240))
         self._n = 0
         self._t_first_ms: int | None = None
 
@@ -94,6 +96,10 @@ class CabinPipeline:
         obs = self.face.process(roi_img, frame.ts_ms, off)
         tm["face"] = (time.perf_counter() - t1) * 1000
         sig = self.signals.update(obs, frame.ts_ms)
+        # D-09 sebagian: perlu status wajah (baseline sel hanya diperbarui saat wajah terlihat)
+        if self.partial_block.update(raw, obs.present):
+            blocked = True
+        stats["partial_frac"] = round(self.partial_block.frac, 2)     # untuk overlay/log debug
 
         yolo = None
         if self.detector is not None:

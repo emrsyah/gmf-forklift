@@ -1,0 +1,28 @@
+# Panduan rekaman: menguap vs bicara (D-01 lewat skor menguap) dan lensa tertutup penuh/sebagian (D-09).
+#   python -m tools.recorder --peraga P1 --session uji_yawn_P1 --source http://IP-HP:4747/video \
+#       --guide configs/guides/uji_menguap_tutup_lensa.yaml --truth eval/scenarios/truth_sim.csv
+# Langkah ber-`code` ditulis otomatis ke truth.csv; NONE = tidak boleh ada alert (uji alarm palsu).
+# ~4 menit, berhenti otomatis. Teks ASCII saja (OpenCV putText).
+steps:
+  - {dur_s: 8,  say: "Duduk tegak, TATAP LURUS ke kamera (kalibrasi)"}
+  - {dur_s: 30, say: "NGOBROL / bicara terus (baca apa saja keras-keras)", code: NONE}
+  - {dur_s: 8,  say: "Diam, tatap depan"}
+  - {dur_s: 8,  say: "MENGUAP lebar 1x (pelan, 3-5 detik)"}
+  - {dur_s: 12, say: "Normal, tatap depan"}
+  - {dur_s: 8,  say: "MENGUAP lebar lagi (ke-2)"}
+  - {dur_s: 12, say: "Normal, tatap depan"}
+  - {dur_s: 8,  say: "MENGUAP lebar lagi (ke-3)", code: D01, level: A-02, scenario: ""}
+  - {dur_s: 12, say: "Normal, tatap depan"}
+  - {dur_s: 15, say: "Tertawa / bicara cepat / minum (wajar)", code: NONE}
+  - {dur_s: 8,  say: "Normal, tatap depan"}
+  - {dur_s: 6,  say: "TUTUP LENSA PENUH dengan telapak tangan, tahan", code: D09, level: A-03, scenario: 20}
+  - {dur_s: 8,  say: "Lepas tangan, tatap depan"}
+  - {dur_s: 6,  say: "TUTUP LENSA SEBAGIAN (3/4), wajah tertutup tangan", code: D09, level: A-03}
+  - {dur_s: 8,  say: "Lepas tangan, tatap depan"}
+  - {dur_s: 6,  say: "TUTUP LENSA SEBAGIAN (setengah), wajah tertutup tangan", code: D09, level: A-03}
+  - {dur_s: 8,  say: "Lepas tangan, tatap depan"}
+  - {dur_s: 6,  say: "Tangan di depan WAJAH (gosok mata), bukan di lensa", code: NONE}
+  - {dur_s: 8,  say: "Normal, tatap depan"}
+  - {dur_s: 8,  say: "GESER KELUAR dari layar (kursi kosong)", code: NONE}
+  - {dur_s: 10, say: "Kembali duduk, tatap depan"}
+  - {dur_s: 3,  say: "SELESAI - terima kasih"}
