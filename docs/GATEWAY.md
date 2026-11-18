@@ -54,6 +54,20 @@ Kirim JSON teks. Bentuknya sama dengan pesan ke dashboard, **tanpa `seq`**:
 - `{type:'status', source:'cabin'|'forward', fps, camera_ok, clock_synced}`: tanda hidup produsen, digabung
   ke telemetri. Status lebih tua dari 6 s dianggap mati (`fpsCabin: 0`, `cabinAlive: false`).
 
+## Live dan bukti kejadian
+
+- **Live kabin:** proses CV mengirim `frame` (JPEG ~480 px, 4 fps, base64) lewat gateway. Hanya frame
+  terbaru yang dikirim; frame dibuang untuk dashboard yang buffer kirimnya masih penuh (`frame_drop_backlog_kb`),
+  supaya alarm tidak antre di belakang gambar. Matikan di `sink.gateway.live.enabled` jika kebijakan privasi
+  tidak mengizinkan wajah pengemudi live.
+- **Snapshot/klip:** gateway menyajikan `events/` (hanya `.jpg`/`.mp4`, mendukung Range) di
+  `http://<host>:8789/media/...`. Event `started` membawa `snapshotUrl` (D-09: frame terakhir sebelum kamera
+  tertutup). Klip ditulis setelah kondisi selesai (10 s sebelum sampai selesai + 2 s, maks 60 s), lalu gateway
+  menyiarkan `{type:'media', seq, clipUrl, clipDurationS}`. Host URL = host yang dipakai dashboard untuk tersambung.
+- **Replay:** setelah putus, dashboard meminta `fromSeq = lastSeq+1`; info klip yang selesai saat terputus ikut
+  dikirim ulang. Saat halaman baru dibuka/di-reload: `fromSeq: 0, maxAgeS: 120` (alarm 2 menit terakhir saja).
+- Perubahan dashboard ada di branch lokal `ai-evidence-live` repo impactto (belum di-push; perlu review Resan).
+
 ## Buzzer
 
 Untuk sekarang buzzer kabin tetap di proses CV: dibunyikan dulu, baru event dikirim (`t_buzzer`).
