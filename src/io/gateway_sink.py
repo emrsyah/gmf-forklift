@@ -49,6 +49,8 @@ class GatewaySink(EventSink):
         self.ack_timeout = ack_timeout_s
         self.q: deque = deque(maxlen=max_queue)
         self._status: dict | None = None
+        self._frame: dict | None = None             # hanya frame live terbaru; yang lama dibuang
+        self.accepts_frames = True
         self._cv = threading.Condition()
         self._stop = False
         self.connected = False
@@ -73,6 +75,13 @@ class GatewaySink(EventSink):
     def media(self, payload):
         with self._cv:
             self.q.append(dict(payload, type="media"))
+            self._cv.notify()
+
+    def frame(self, payload):
+        if not self.connected:
+            return
+        with self._cv:
+            self._frame = payload
             self._cv.notify()
 
     def close(self, drain_s: float = 3.0):
@@ -102,12 +111,18 @@ class GatewaySink(EventSink):
     def _loop(self, ws):
         while not self._stop:
             with self._cv:
-                if not self.q and self._status is None:
+                if not self.q and self._status is None and self._frame is None:
                     self._cv.wait(timeout=1.0)
                 status, self._status = self._status, None
                 head = self.q[0] if self.q else None
+                # event dulu; frame live hanya dikirim saat antrean event kosong
+                frame = None
+                if head is None:
+                    frame, self._frame = self._frame, None
             if status is not None:
                 ws.send(json.dumps(status, ensure_ascii=False))
+            if frame is not None:
+                ws.send(json.dumps(frame))
             if head is None:
                 continue
             if head.get("type") != "event":

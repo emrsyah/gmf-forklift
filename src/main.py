@@ -174,7 +174,11 @@ def main(argv=None):
     if recorder is not None:
         recorder.on_done = sinks.media            # info bukti (klip selesai) -> media.jsonl / topik media
     from src.io.heartbeat import Heartbeat
+    from src.io.live import LiveFrames
     hb = Heartbeat(rt.get("heartbeat"), rt.get("device_id", "laptop-dev"), rt.get("model_versions"))
+    live = LiveFrames(rt.get("sink", {}).get("gateway", {}).get("live"), "cabin")
+    if not sinks.wants_frames():
+        live.enabled = False
 
     fps, n, t0 = 0.0, 0, time.monotonic()
     last = None
@@ -238,6 +242,8 @@ def main(argv=None):
                     if (show or recorder or web) else None
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
+                if live.due(now_ms):
+                    sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
                 if web is not None:
                     web.publish(vis)
                 keys = []

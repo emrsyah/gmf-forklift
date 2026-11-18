@@ -1,7 +1,13 @@
-"""Logika gateway tanpa jaringan: seq persisten, buffer replay, log, telemetri.
+"""Logika gateway tanpa jaringan: seq persisten, buffer replay, log, telemetri, URL bukti.
 
 Kontrak pesan = `minerva-forklift/src/integrations/hardware.ts` (repo impactto). Pesan produsen boleh
 tanpa `seq`/`forkliftId`; gateway yang mengisi. Kode boleh `D02` atau `D-02` (dinormalisasi ke `D-02`).
+
+Bukti (K7): produsen mengirim path lokal (`snapshotPath`, `clipPath`, relatif ke root repo). Gateway
+menyimpannya, lalu saat mengirim ke tiap dashboard mengubahnya menjadi URL HTTP media server gateway
+(`snapshotUrl`, `clipUrl`) dengan host yang dipakai dashboard itu untuk tersambung.
+Klip baru ada setelah kondisi selesai: saat itu produsen mengirim `media`, gateway memperbarui event di
+buffer dan menyiarkan `{type:'media', seq, clipUrl, ...}`.
 """
 from __future__ import annotations
 
@@ -13,12 +19,15 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from src.config import resolve_path
 
 _CODE_RE = re.compile(r"^([A-Z])-?(\d{2})$")
 # pesan produsen yang diteruskan apa adanya ke dashboard (ditambah forkliftId)
 PASSTHROUGH = {"gnss", "ups", "frame"}
+# field internal yang tidak dikirim ke dashboard (diganti URL)
+_PRIVATE = {"snapshotPath", "clipPath", "ack_id"}
 
 
 def normalize_code(code: str) -> str:
@@ -39,6 +48,11 @@ class Gateway:
         self.buffer: deque = deque(maxlen=int(cfg.get("replay_buffer", 500)))
         self.status: dict[str, dict] = {}         # status terakhir per produsen (mis. "cabin")
         self.status_fresh_ms = float(cfg.get("status_fresh_s", 6)) * 1000
+        m = cfg.get("media", {}) or {}
+        self.media_enabled = bool(m.get("enabled", True))
+        self.media_root = resolve_path(m.get("root", "events"))
+        self.media_port = int(m.get("port", 8789))
+        self.media_public = m.get("public_base_url")   # null = http://<host dashboard>:<port>
         self._lock = threading.Lock()
         self.seq = self._load()
 
@@ -57,6 +71,9 @@ class Gateway:
                         ev = json.loads(line)
                     except json.JSONDecodeError:
                         continue                   # baris terakhir bisa terpotong saat listrik putus
+                    if "_media_for" in ev:         # pembaruan klip untuk event yang sudah ada
+                        self._apply_media(ev["_media_for"], ev)
+                        continue
                     self.buffer.append(ev)
                     seq = max(seq, int(ev.get("seq", 0)))
         return seq
@@ -69,12 +86,11 @@ class Gateway:
             os.fsync(f.fileno())
         os.replace(tmp, self.seq_path)
 
-    def _append_event(self, ev: dict):
+    def _append(self, rec: dict):
         with open(self.events_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
-        self._trim_events_file()
 
     def _trim_events_file(self):
         # file tidak tumbuh tanpa batas: simpan 2x ukuran buffer
@@ -92,9 +108,43 @@ class Gateway:
             f.write(json.dumps({"t_gateway_ms": self.now_ms(), "dir": direction, "msg": msg},
                                ensure_ascii=False) + "\n")
 
+    # ---------------------------------------------------------------- URL bukti
+    def media_rel(self, path: str | None) -> str | None:
+        """Path lokal produsen -> path relatif di bawah media root (None jika di luar root / tidak ada)."""
+        if not path or not self.media_enabled:
+            return None
+        try:
+            p = resolve_path(path).resolve()
+            rel = p.relative_to(self.media_root.resolve())
+        except (ValueError, OSError):
+            return None
+        return rel.as_posix()
+
+    def media_base(self, host: str | None) -> str | None:
+        if not self.media_enabled:
+            return None
+        if self.media_public:
+            return str(self.media_public).rstrip("/")
+        if not host:
+            return None
+        hostname = host.rsplit(":", 1)[0] if host.count(":") == 1 or host.startswith("[") else host
+        return f"http://{hostname}:{self.media_port}"
+
+    def render(self, msg: dict, host: str | None = None) -> str:
+        """Pesan internal -> teks JSON untuk satu dashboard (path lokal diganti URL media)."""
+        out = {k: v for k, v in msg.items() if k not in _PRIVATE and not k.startswith("_")}
+        base = self.media_base(host)
+        if base:
+            for src, dst in (("snapshotPath", "snapshotUrl"), ("clipPath", "clipUrl")):
+                rel = self.media_rel(msg.get(src))
+                if rel and (src != "clipPath" or msg.get("clipReady", True)):
+                    out[dst] = f"{base}/media/{quote(rel)}"
+        out.pop("clipReady", None)
+        return json.dumps(out, ensure_ascii=False)
+
     # ---------------------------------------------------------------- produsen -> dashboard
-    def ingest(self, msg: dict) -> list[str]:
-        """Pesan dari produsen lokal. Mengembalikan teks JSON yang harus disiarkan ke dashboard."""
+    def ingest(self, msg: dict) -> list[dict]:
+        """Pesan dari produsen lokal. Mengembalikan pesan yang harus disiarkan ke dashboard (render per klien)."""
         if not isinstance(msg, dict):
             return []
         t = msg.get("type")
@@ -112,25 +162,54 @@ class Gateway:
                 ev = {k: v for k, v in msg.items() if v is not None and k != "ack_id"}
                 ev.update(type="event", forkliftId=msg.get("forkliftId") or self.forklift_id, seq=self.seq,
                           code=normalize_code(msg["code"]), state=msg.get("state", "started"))
+                if ev.get("clipPath"):
+                    ev["clipReady"] = False         # klip ditulis setelah kondisi selesai
                 self._save_seq()                   # seq disimpan SEBELUM dikirim
-                self._append_event(ev)
+                self._append(ev)
+                self._trim_events_file()
                 self.buffer.append(ev)
             self.log("out", ev)
-            return [json.dumps(ev, ensure_ascii=False)]
+            return [ev]
         if t in PASSTHROUGH:
-            out = dict(msg, forkliftId=msg.get("forkliftId") or self.forklift_id)
-            return [json.dumps(out, ensure_ascii=False)]
+            return [dict(msg, forkliftId=msg.get("forkliftId") or self.forklift_id)]
         if t == "status":                          # tanda hidup produsen -> digabung ke telemetri
             self.status[str(msg.get("source", "cabin"))] = dict(msg, _rx_ms=self.now_ms())
             return []
-        if t == "media":                           # info klip/snapshot: dicatat (dashboard belum punya player)
+        if t == "media":                           # klip selesai ditulis
             self.log("media", msg)
-            return []
+            return self._on_media(msg)
         self.log("reject", msg)
         return []
 
+    def _apply_media(self, seq: int, upd: dict) -> dict | None:
+        for ev in self.buffer:
+            if ev.get("seq") == seq:
+                if upd.get("clipPath"):
+                    ev["clipPath"] = upd["clipPath"]
+                    ev["clipReady"] = True
+                if upd.get("clipDurationS") is not None:
+                    ev["clipDurationS"] = upd["clipDurationS"]
+                return ev
+        return None
+
+    def _on_media(self, msg: dict) -> list[dict]:
+        eid = msg.get("event_id")
+        if not eid or not msg.get("clip_ok"):
+            return []
+        with self._lock:
+            start = next((e for e in self.buffer if e.get("event_id") == eid and e.get("state") == "started"), None)
+            if start is None:
+                return []
+            upd = {"_media_for": start["seq"], "clipPath": msg.get("clip_path"),
+                   "clipDurationS": msg.get("clip_duration_s")}
+            self._apply_media(start["seq"], upd)
+            self._append(upd)
+        return [{"type": "media", "forkliftId": start["forkliftId"], "seq": start["seq"], "code": start["code"],
+                 "event_id": eid, "snapshotPath": start.get("snapshotPath"), "clipPath": start.get("clipPath"),
+                 "clipDurationS": start.get("clipDurationS")}]
+
     # ---------------------------------------------------------------- dashboard -> gateway
-    def on_dashboard(self, msg: dict) -> list[str]:
+    def on_dashboard(self, msg: dict) -> list[dict]:
         """Pesan dari dashboard. Mengembalikan balasan untuk klien itu saja (replay)."""
         if not isinstance(msg, dict):
             return []
@@ -144,7 +223,7 @@ class Gateway:
             except (TypeError, ValueError):
                 from_seq = 0
             with self._lock:
-                out = [json.dumps(ev, ensure_ascii=False) for ev in self.buffer if ev.get("seq", 0) >= from_seq]
+                out = [dict(ev) for ev in self.buffer if ev.get("seq", 0) >= from_seq]
             self.log("replay", {"fromSeq": from_seq, "count": len(out)})
             return out
         self.log("unknown_in", msg)
@@ -157,7 +236,7 @@ class Gateway:
             return s
         return None
 
-    def telemetry(self, system: dict | None = None) -> str:
+    def telemetry(self, system: dict | None = None) -> dict:
         cab = self._fresh("cabin")
         fwd = self._fresh("forward")
         m = {"type": "telemetry", "forkliftId": self.forklift_id, "ts_ms": self.now_ms()}
@@ -169,7 +248,7 @@ class Gateway:
         m["cabinAlive"] = cab is not None
         m["ntpSynced"] = cab.get("clock_synced") if cab else None
         m["seq"] = self.seq
-        return json.dumps(m, ensure_ascii=False)
+        return m
 
 
 def system_stats() -> dict:

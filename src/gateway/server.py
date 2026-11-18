@@ -1,38 +1,50 @@
-"""Lapisan jaringan gateway (asyncio + websockets).
+"""Lapisan jaringan gateway (asyncio + websockets) + server HTTP media (snapshot/klip).
 
   python -m src.gateway.server                      # pakai runtime.yaml bagian `gateway`
   python -m src.gateway.server --overlay configs/jetson.yaml
 
 Dashboard (Pengaturan -> endpoint Jetson FL-01): ws://<ip-jetson>:8787
 Produsen lokal (proses CV, GPS/zona, UPS):       ws://127.0.0.1:8788
+Bukti (snapshot/klip, hanya .jpg/.mp4):          http://<ip-jetson>:8789/media/<tanggal>/<event_id>.mp4
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import threading
 
 from websockets.asyncio.server import broadcast, serve
 
 from src.config import Config, deep_merge, load_yaml
 
 from .core import Gateway, system_stats
+from .media import start_media_server
 
 
 class GatewayServer:
     def __init__(self, gw: Gateway, cfg: dict):
         self.gw = gw
         self.c = cfg
-        self.dash = set()
+        self.dash: dict = {}                      # koneksi -> host yang dipakai dashboard (untuk URL media)
         self.max_bytes = int(cfg.get("max_message_kb", 512)) * 1024
+        self.media_httpd = None
 
-    def _broadcast(self, texts: list[str]):
-        for t in texts:
-            broadcast(self.dash, t)
+    def _send_all(self, msgs: list[dict]):
+        """Kirim ke semua dashboard. Dirender per host (URL media memakai host yang dipakai klien itu)."""
+        if not self.dash or not msgs:
+            return
+        groups: dict = {}
+        for ws, host in list(self.dash.items()):
+            groups.setdefault(host, []).append(ws)
+        for m in msgs:
+            for host, conns in groups.items():
+                broadcast(conns, self.gw.render(m, host))
 
     async def dashboard_handler(self, ws):
-        self.dash.add(ws)
-        self.gw.log("dashboard_connect", {"peer": str(ws.remote_address), "clients": len(self.dash)})
+        host = ws.request.headers.get("Host") if ws.request is not None else None
+        self.dash[ws] = host
+        self.gw.log("dashboard_connect", {"peer": str(ws.remote_address), "host": host, "clients": len(self.dash)})
         try:
             async for raw in ws:
                 try:
@@ -40,9 +52,9 @@ class GatewayServer:
                 except (json.JSONDecodeError, TypeError):
                     continue
                 for reply in self.gw.on_dashboard(msg):
-                    await ws.send(reply)
+                    await ws.send(self.gw.render(reply, host))
         finally:
-            self.dash.discard(ws)
+            self.dash.pop(ws, None)
             self.gw.log("dashboard_disconnect", {"peer": str(ws.remote_address), "clients": len(self.dash)})
 
     async def producer_handler(self, ws):
@@ -51,8 +63,7 @@ class GatewayServer:
                 msg = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 continue
-            out = self.gw.ingest(msg)
-            self._broadcast(out)
+            self._send_all(self.gw.ingest(msg))
             if msg.get("type") == "event" and msg.get("ack_id") is not None:
                 await ws.send(json.dumps({"type": "ack", "ack_id": msg["ack_id"]}))
 
@@ -60,23 +71,31 @@ class GatewayServer:
         period = float(self.c.get("telemetry_s", 2))
         while True:
             await asyncio.sleep(period)
-            self._broadcast([self.gw.telemetry(system_stats())])
+            stats = await asyncio.to_thread(system_stats)
+            self._send_all([self.gw.telemetry(stats)])
 
     async def run(self, stop: asyncio.Event | None = None):
         d, p = self.c.get("dashboard", {}), self.c.get("producer", {})
+        m = self.c.get("media", {}) or {}
         stop = stop or asyncio.Event()
+        if self.gw.media_enabled:
+            self.media_httpd = start_media_server(self.gw.media_root, m.get("host", "0.0.0.0"), self.gw.media_port)
         async with serve(self.dashboard_handler, d.get("host", "0.0.0.0"), int(d.get("port", 8787)),
                          max_size=self.max_bytes), \
                 serve(self.producer_handler, p.get("host", "127.0.0.1"), int(p.get("port", 8788)),
                       max_size=self.max_bytes):
             print(f"[gateway] dashboard ws://{d.get('host', '0.0.0.0')}:{d.get('port', 8787)} | "
                   f"produsen ws://{p.get('host', '127.0.0.1')}:{p.get('port', 8788)} | "
+                  f"media http://{m.get('host', '0.0.0.0')}:{self.gw.media_port} "
+                  f"{'(aktif)' if self.media_httpd else '(mati)'} | "
                   f"seq terakhir {self.gw.seq} | buffer {len(self.gw.buffer)}", flush=True)
             tel = asyncio.create_task(self.telemetry_loop())
             try:
                 await stop.wait()
             finally:
                 tel.cancel()
+                if self.media_httpd is not None:
+                    threading.Thread(target=self.media_httpd.shutdown, daemon=True).start()
 
 
 def main(argv=None):

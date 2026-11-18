@@ -118,6 +118,14 @@ sink:
     forklift_id: FL-01
     retry_s: 2.0
     max_queue: 2000
+    # Live kamera kabin ke dashboard (pesan `frame`). Wajah pengemudi secara live: kebijakan privasi
+    # belum disepakati (pertanyaan terbuka #5) -> matikan di sini jika tidak boleh.
+    live:
+      enabled: true
+      fps: 4
+      max_side: 480         # ~20-30 KB/frame -> ~1 Mbps pada 4 fps
+      jpeg_quality: 60
+      overlay: false        # true = kirim gambar dengan overlay debug (sinyal, kode aktif)
 
 # Proses gateway (python -m src.gateway.server), terpisah dari proses CV supaya CV restart/crash tidak
 # memutus dashboard, seq, dan replay.
@@ -130,6 +138,14 @@ gateway:
   telemetry_s: 2
   status_fresh_s: 6                          # status CV lebih tua dari ini -> fpsCabin 0, cabinAlive false
   max_message_kb: 512
+  # Bukti kejadian (K7): snapshot/klip disajikan read-only lewat HTTP, URL-nya ikut di event
+  # (snapshotUrl saat mulai; clipUrl lewat pesan `media` setelah klip selesai ditulis).
+  media:
+    enabled: true
+    host: 0.0.0.0
+    port: 8789
+    root: events                 # = sink.file.dir proses CV; hanya .jpg/.mp4 di bawahnya yang bisa diambil
+    public_base_url: null        # null = http://<host yang dipakai dashboard>:<port>
 
 heartbeat:
   enabled: true

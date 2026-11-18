@@ -20,6 +20,9 @@ class EventSink:
     def media(self, payload: dict) -> None:
         """Info file bukti (snapshot/klip) setelah selesai ditulis. Default: diabaikan."""
 
+    def frame(self, payload: dict) -> None:
+        """Frame live resolusi rendah (pesan `frame`). Default: diabaikan."""
+
     def close(self) -> None:
         pass
 
@@ -188,6 +191,13 @@ class MultiSink(EventSink):
     def media(self, payload):
         for s in self.sinks:
             s.media(payload)
+
+    def frame(self, payload):
+        for s in self.sinks:
+            s.frame(payload)
+
+    def wants_frames(self) -> bool:
+        return any(getattr(s, "accepts_frames", False) for s in self.sinks)
 
     def close(self):
         for s in self.sinks:
