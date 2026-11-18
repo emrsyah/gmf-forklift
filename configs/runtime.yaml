@@ -110,9 +110,30 @@ sink:
     username: null
     password_env: null                        # nama variabel lingkungan berisi kata sandi (bukan sandinya)
 
+  # Dashboard MINERVA (impactto): proses CV -> gateway lokal (src/gateway) -> WebSocket ke dashboard.
+  # Kontrak: impactto qa/uc2/jetson-scope.md. CLI --gateway menyalakannya tanpa mengubah file ini.
+  gateway:
+    enabled: false
+    url: ws://127.0.0.1:8788
+    forklift_id: FL-01
+    retry_s: 2.0
+    max_queue: 2000
+
+# Proses gateway (python -m src.gateway.server), terpisah dari proses CV supaya CV restart/crash tidak
+# memutus dashboard, seq, dan replay.
+gateway:
+  forklift_id: FL-01
+  dashboard: {host: 0.0.0.0, port: 8787}     # dashboard: Pengaturan -> endpoint Jetson FL-01
+  producer: {host: 127.0.0.1, port: 8788}    # hanya lokal: CV, GPS/zona, UPS
+  state_dir: gateway_state                   # seq.txt, events.jsonl (buffer replay), log/ (JANGAN di-commit)
+  replay_buffer: 500
+  telemetry_s: 2
+  status_fresh_s: 6                          # status CV lebih tua dari ini -> fpsCabin 0, cabinAlive false
+  max_message_kb: 512
+
 heartbeat:
   enabled: true
-  interval_s: 5
+  interval_s: 2             # sama dengan telemetri dashboard (tanda hidup tiap 2 dtk)
   clock_check_s: 60         # cek NTP (timedatectl) tiap 60 s; null di Windows
 
 recording:

@@ -8,6 +8,7 @@ __pycache__/
 # Data, rekaman, wajah orang — JANGAN di-commit (aturan kerja 9 & 11)
 data/
 events/
+gateway_state/
 eval/scenarios/*.mp4
 eval/scenarios/*.avi
 eval/scenarios/*.mkv

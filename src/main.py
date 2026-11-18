@@ -51,6 +51,9 @@ def parse_args(argv=None):
     ap.add_argument("--web", type=int, default=None, metavar="PORT",
                     help="tampilkan overlay di browser: http://IP-PERANGKAT:PORT (+ tombol hotkey). "
                          "Default: runtime.yaml ui.web.port jika ui.web.enabled")
+    ap.add_argument("--gateway", nargs="?", const="ws://127.0.0.1:8788", default=None, metavar="URL",
+                    help="kirim event ke gateway dashboard MINERVA (python -m src.gateway.server); "
+                         "default URL ws://127.0.0.1:8788")
     ap.add_argument("--log-fps", type=float, default=0.0,
                     help="cetak FPS + waktu per tahap ke terminal tiap N detik (0 = mati)")
     return ap.parse_args(argv)
@@ -137,6 +140,8 @@ def main(argv=None):
         rt["cabin"]["simulate_nir"] = True
     if a.no_beep:
         rt["alert"]["type"] = "none"
+    if a.gateway:
+        rt.setdefault("sink", {}).setdefault("gateway", {}).update(enabled=True, url=a.gateway)
     show = rt.get("ui", {}).get("show", True) and not a.no_show
 
     sim = setup_camera_sim(rt, "cabin", a.camera_profile, a.phone_hfov, rt["cabin"]["source"])

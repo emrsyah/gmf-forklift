@@ -211,4 +211,9 @@ def make_sinks(cfg: dict, device_id: str) -> MultiSink:
                               # kata sandi TIDAK ditulis di YAML: dibaca dari variabel lingkungan
                               username=m.get("username"),
                               password=os.environ.get(m.get("password_env") or "") or None))
+    g = cfg.get("gateway", {})
+    if g.get("enabled"):
+        from .gateway_sink import GatewaySink
+        sinks.append(GatewaySink(g.get("url", "ws://127.0.0.1:8788"), g.get("forklift_id", "FL-01"),
+                                 retry_s=g.get("retry_s", 2.0), max_queue=g.get("max_queue", 2000)))
     return MultiSink(sinks)
