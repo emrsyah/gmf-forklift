@@ -60,6 +60,7 @@ front:
   enabled: false
   source:
     type: file
+    # Laptop uji (2026-11-21): Logitech C930e = index 1 (0 = kamera bawaan). FOV diagonal ~90°.
     index: 1
     path: null
     url: null
@@ -68,7 +69,10 @@ front:
     height: 720
     fps: 30
     realtime: true
-    api: auto
+    api: dshow
+    fourcc: MJPG            # tanpa ini C930e jatuh ke YUY2: 720p ~10 fps, 1080p ~5 fps
+    autofocus: false        # kunci fokus: kalibrasi papan catur hanya berlaku untuk fokus yang sama
+    focus: 0                # 0 = tak hingga (C930e: 0..255); jalur forklift jauh dari kamera
   yolo:
     backend: ultralytics
     weights: models/weights/yolo11n.pt   # COCO pretrained; nanti front_best

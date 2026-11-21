@@ -89,14 +89,26 @@ class _LiveSource(FrameSource):
 
 class WebcamSource(_LiveSource):
     def __init__(self, index: int = 0, width: int | None = None, height: int | None = None,
-                 fps: float | None = None, api: str = "auto"):
-        cap = cv2.VideoCapture(int(index), _API.get(api, cv2.CAP_ANY))
+                 fps: float | None = None, api: str = "auto", fourcc: str | None = None,
+                 autofocus: bool | None = None, focus: float | None = None):
+        # Format/ukuran lewat parameter konstruktor: di DirectShow, set(FOURCC) sesudah open sering diabaikan
+        # (C930e tetap YUY2 -> 1080p cuma ~5 fps lewat USB). MJPG membuka 1080p/720p penuh.
+        params: list[int] = []
+        if fourcc:
+            params += [cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc)]
         if width:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            params += [cv2.CAP_PROP_FRAME_WIDTH, int(width)]
         if height:
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            params += [cv2.CAP_PROP_FRAME_HEIGHT, int(height)]
         if fps:
-            cap.set(cv2.CAP_PROP_FPS, fps)
+            params += [cv2.CAP_PROP_FPS, int(fps)]
+        api_id = _API.get(api, cv2.CAP_ANY)
+        cap = cv2.VideoCapture(int(index), api_id, params) if params else cv2.VideoCapture(int(index), api_id)
+        # Kamera depan: fokus dikunci supaya kalibrasi intrinsik (estimasi jarak) tidak bergeser.
+        if autofocus is not None:
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 1 if autofocus else 0)
+        if focus is not None:
+            cap.set(cv2.CAP_PROP_FOCUS, float(focus))
         super().__init__(cap, f"webcam:{index}")
 
 
@@ -209,7 +221,8 @@ def make_source(cfg: dict) -> FrameSource:
     t = cfg.get("type", "webcam")
     if t == "webcam":
         return WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
-                            cfg.get("fps"), cfg.get("api", "auto"))
+                            cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc"),
+                            cfg.get("autofocus"), cfg.get("focus"))
     if t == "file":
         return VideoFileSource(cfg["path"], realtime=cfg.get("realtime", True),
                                start_epoch_ms=cfg.get("start_epoch_ms"))

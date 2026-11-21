@@ -38,12 +38,20 @@ kecepatan (m/s) tetap benar.
 
 ## 1. Kalibrasi intrinsik (papan catur)
 
-1. Cetak papan catur dan rekatkan pada papan yang rata dan kaku. `--pattern` adalah jumlah sudut **dalam**: papan 10×7 kotak berarti `9x6`. Ukur sisi kotak dengan penggaris, misalnya 25 mm.
-2. Pakai resolusi yang **sama** dengan saat operasi (`front.source.width/height`). Jika resolusi frame berbeda, K diskalakan otomatis, tetapi lebih akurat bila sama.
-3. Ambil 15–30 view. Papan harus menutupi seluruh area frame, termasuk tepi dan sudut. Variasikan kemiringan papan ±30–45° dan jaraknya. Hindari blur.
+1. Buat papan: `python tools/calibrate_camera.py --make-board data/calib/board_9x6_25mm.png --pattern 9x6 --square-mm 25`.
+   Cetak A4 landscape **100% / actual size** (bukan "fit to page"), rekatkan pada papan yang rata dan kaku
+   (kardus tebal/akrilik; kertas melengkung = K salah). Ukur garis 50 mm dan sisi kotak dengan penggaris;
+   pakai sisi kotak **hasil ukur** di `--square-mm`. `--pattern` adalah jumlah sudut **dalam**: papan 10×7 kotak = `9x6`.
+2. Untuk webcam, setelan kamera (resolusi, MJPG, `autofocus: false`, `focus`) otomatis diambil dari
+   `runtime.yaml` `front.source`, sama dengan `tools/run_front.py`, dan dicatat di `camera.capture`.
+   Jika fokus atau resolusi diubah setelah kalibrasi, kalibrasi ulang.
+3. Ambil 15–30 view. Papan harus menutupi seluruh area frame, termasuk tepi dan sudut: jendela menampilkan
+   area yang sudah tertutup (hijau) dan sel 3×3 yang belum (kotak merah). Variasikan kemiringan papan ±30–45°
+   dan jaraknya. View ditolak otomatis jika papan masih bergerak (blur) atau terlalu mirip view sebelumnya.
+   Setelah kalibrasi, view dengan error jauh di atas median dibuang lalu kalibrasi diulang sekali.
 
 ```bash
-# live: SPASI/c ambil view saat papan terdeteksi (sudut berwarna), q selesai
+# live: SPASI/c ambil view, a = ambil otomatis tiap 1 s, u = batalkan view terakhir, q = selesai & kalibrasi
 python tools/calibrate_camera.py --source webcam:1 --pattern 9x6 --square-mm 25 --save-views data/calib/front
 # dari folder gambar
 python tools/calibrate_camera.py --images "data/calib/front/*.png" --pattern 9x6 --square-mm 25
