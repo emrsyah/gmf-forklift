@@ -5,7 +5,8 @@ Tiap --interval-s detik satu baris JSONL di <--log-dir>/netwatch-YYYYMMDD.jsonl:
     agent  : umur kontak terakhir dengan server, RTT, event tertunda  (minerva_edge.py  :8098/)
     route  : interface jalur default (modem 5G atau Wi-Fi)
     ok     : radio terdaftar + agen sempat kontak server < --stale-s detik
-Perubahan ok <-> putus juga dicetak ke stdout (jadi log run_netwatch.sh berisi ringkasan putus-sambung).
+    cameras: kamera kabin/depan terpasang atau tidak (nama perangkat di /sys/class/video4linux)
+Perubahan ok <-> putus dan kamera terpasang <-> terlepas juga dicetak ke stdout (log run_netwatch.sh).
 
     python3 tools/jetson/netwatch.py --log-dir ~/gmf-forklift/logs
 """
@@ -45,7 +46,29 @@ def default_route_iface() -> str | None:
     return best[1] if best else None
 
 
-def summarize(status: dict | None, agent: dict | None, route: str | None, now: float, stale_s: float) -> dict:
+def video_devices(root: str = "/sys/class/video4linux") -> list[str]:
+    """Nama semua perangkat video yang terpasang (mis. 'vi-output, imx219 10-0010', 'Logitech Webcam C930e')."""
+    names = []
+    try:
+        for d in sorted(os.listdir(root)):
+            try:
+                with open(os.path.join(root, d, "name"), encoding="utf-8") as f:
+                    names.append(f.read().strip())
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return names
+
+
+def camera_status(names: list[str], expected: dict[str, str]) -> dict[str, bool]:
+    """{peran: terpasang?}; expected = {peran: potongan nama perangkat}, cocok tanpa beda huruf besar/kecil."""
+    low = [n.lower() for n in names]
+    return {role: any(key.lower() in n for n in low) for role, key in expected.items()}
+
+
+def summarize(status: dict | None, agent: dict | None, route: str | None, now: float, stale_s: float,
+              cameras: dict[str, bool] | None = None) -> dict:
     modem = (status or {}).get("modem") or {}
     cell = (status or {}).get("cell") or {}
     ping = (status or {}).get("ping") or {}
@@ -73,7 +96,7 @@ def summarize(status: dict | None, agent: dict | None, route: str | None, now: f
     via_modem = route is not None and radio["iface"] is not None and route == radio["iface"]
     ok = bool(radio["registered"]) and agent_s["last_ok_age_s"] is not None and agent_s["last_ok_age_s"] < stale_s
     return {"ts_ms": int(now * 1000), "ok": ok, "route": route, "via_modem": via_modem,
-            "radio": radio, "agent": agent_s}
+            "radio": radio, "agent": agent_s, "cameras": cameras or {}}
 
 
 def reason(row: dict) -> str:
@@ -95,15 +118,26 @@ def main(argv=None) -> int:
     ap.add_argument("--status-url", default="http://127.0.0.1:8088/api/status")
     ap.add_argument("--agent-url", default="http://127.0.0.1:8098/")
     ap.add_argument("--timeout-s", type=float, default=3.0)
+    ap.add_argument("--camera", action="append", default=None, metavar="PERAN=NAMA",
+                    help="kamera yang diharapkan, potongan nama perangkat V4L2 "
+                         "(default: cabin=imx219 front=C930e); boleh diulang")
     args = ap.parse_args(argv)
+    expected = dict(c.split("=", 1) for c in (args.camera or ["cabin=imx219", "front=C930e"]))
 
     os.makedirs(args.log_dir, exist_ok=True)
     prev_ok = None
+    prev_cams: dict[str, bool] = {}
     down_since = None
     while True:
         t0 = time.time()
+        cams = camera_status(video_devices(), expected)
         row = summarize(fetch_json(args.status_url, args.timeout_s), fetch_json(args.agent_url, args.timeout_s),
-                        default_route_iface(), time.time(), args.stale_s)
+                        default_route_iface(), time.time(), args.stale_s, cams)
+        for role, present in cams.items():
+            if prev_cams.get(role) != present:
+                print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} KAMERA {role} ({expected[role]}): "
+                      f"{'terpasang' if present else 'TERLEPAS / tidak terdeteksi'}", flush=True)
+        prev_cams = cams
         path = os.path.join(args.log_dir, time.strftime("netwatch-%Y%m%d.jsonl"))
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, separators=(",", ":")) + "\n")

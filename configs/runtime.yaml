@@ -179,6 +179,43 @@ recording:
   # tidak turun tajam setelah alarm (Orin Nano: x264 software, tanpa encoder hardware)
   x264_args: [-crf, "26", -maxrate, 1500k, -bufsize, 3000k, -threads, "2"]
 
+# Rekaman kamera kabin terus-menerus untuk pengumpulan data (frame mentah dari kamera, SEBELUM simulate_nir,
+# tanpa overlay). Segmen + <video>.ts.csv (frame,ts_ms) -> bisa diputar ulang lewat replay harness.
+# Hanya peraga yang setuju direkam; simpan lokal, jangan commit/unggah (CLAUDE.md aturan 9 dan 11).
+continuous_recording:
+  enabled: false
+  dir: recordings/cabin
+  prefix: cabin
+  segment_s: 300            # 5 menit per file
+  fps: 10                   # cukup untuk anotasi/replay; jaga ukuran (~1-1,5 GB/jam pada 960x720 MJPG)
+  max_side: 960
+  codec: MJPG               # murah di CPU (Orin Nano tanpa encoder hardware)
+  ext: avi
+  jpeg_quality: 85
+  min_free_gb: 15           # berhenti merekam jika ruang disk kurang dari ini
+  max_queue: 60             # frame antre ke thread penulis; penuh -> frame rekaman dibuang, deteksi tidak melambat
+
+# Kamera depan TANPA deteksi (sumber = front.source): panel kedua di tampilan web + rekaman data.
+# Dipakai selama pipeline depan (YOLO TensorRT + ByteTrack) belum jalan di Jetson. Jangan aktifkan bersamaan
+# dengan front.enabled (kamera yang sama tidak bisa dibuka dua kali).
+front_preview:
+  enabled: false
+  label: Kamera depan
+  rotate: 0                 # 0/90/180/270 searah jarum jam, sesuai cara kamera dipasang
+  retry_s: 5                # buka ulang kamera tiap 5 s jika tercabut
+  recording:
+    enabled: false
+    dir: recordings/front
+    prefix: front
+    segment_s: 300
+    fps: 10
+    max_side: 1280
+    codec: MJPG
+    ext: avi
+    jpeg_quality: 85
+    min_free_gb: 15
+    max_queue: 60
+
 ui:
   show: true
   # judul jendela OpenCV

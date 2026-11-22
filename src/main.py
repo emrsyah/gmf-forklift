@@ -180,6 +180,12 @@ def main(argv=None):
     from src.io.live import LiveFrames
     hb = Heartbeat(rt.get("heartbeat"), rt.get("device_id", "laptop-dev"), rt.get("model_versions"))
     live = LiveFrames(rt.get("sink", {}).get("gateway", {}).get("live"), "cabin")
+    cont_cfg = rt.get("continuous_recording", {}) or {}
+    cont = None
+    if cont_cfg.get("enabled", False) and not a.no_record:   # data collection: frame mentah, tanpa overlay
+        from src.io.continuous import ContinuousRecorder
+        cont = ContinuousRecorder(cont_cfg, rt.get("device_id", "laptop-dev"))
+        print(f"[rekam] rekaman terus-menerus aktif -> {cont.dir}", flush=True)
     if not any(getattr(s, "accepts_frames", False) for s in sinks.sinks):
         live.enabled = False
 
@@ -199,6 +205,17 @@ def main(argv=None):
         web = WebView(web_port, keys_in, title=win, fps=web_cfg.get("fps", 10),
                       max_side=web_cfg.get("max_side", 960), jpeg_quality=web_cfg.get("jpeg_quality", 75))
         print(f"[web] tampilan browser: http://<IP-perangkat>:{web_port}", flush=True)
+    fp_cfg = rt.get("front_preview", {}) or {}
+    front = None
+    if fp_cfg.get("enabled", False):            # kamera depan: lihat + rekam, belum dideteksi
+        from src.io.front_preview import FrontPreview
+        f_rec = None
+        f_rec_cfg = fp_cfg.get("recording", {}) or {}
+        if f_rec_cfg.get("enabled", False) and not a.no_record:
+            from src.io.continuous import ContinuousRecorder
+            f_rec = ContinuousRecorder(f_rec_cfg, rt.get("device_id", "laptop-dev"))
+            print(f"[rekam] kamera depan direkam -> {f_rec.dir}", flush=True)
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec)
     t_log, n_log = time.monotonic(), 0
     face_log: list = []
     if show and rt.get("ui", {}).get("fullscreen", False):
@@ -207,6 +224,8 @@ def main(argv=None):
     try:
         with src:
             for frame in src:
+                if cont is not None:
+                    cont.push(frame.image, frame.ts_ms)
                 st = pipe.process(frame)
                 last = st
                 if pipe.calibration.status != cal_status:   # log setiap perubahan status kalibrasi
@@ -248,7 +267,7 @@ def main(argv=None):
                 if live.due(now_ms) and sinks.wants_frames():
                     sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
                 if web is not None:
-                    web.publish(vis)
+                    web.publish(vis, "cabin")
                 keys = []
                 if show:
                     show_image(win, vis, max_side)
@@ -272,6 +291,10 @@ def main(argv=None):
             handle_actions(pipe.finish(last.frame.ts_ms, last.frame.video_t_s), alerter, sinks, recorder, None)
         if recorder is not None:
             recorder.flush()
+        if cont is not None:
+            cont.close()
+        if front is not None:
+            front.close()
         sinks.close()
         alerter.close()
         if web is not None:

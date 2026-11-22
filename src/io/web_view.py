@@ -32,10 +32,12 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
         font-size:14px;cursor:pointer}}
  button:hover{{background:#3a3a3a}} button.stop{{border-color:#a33}}
  #msg{{font-size:13px;color:#9c9}}
- main{{display:flex;justify-content:center}} img{{max-width:100%;max-height:calc(100vh - 52px)}}
+ main{{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}}
+ figure{{margin:0;flex:1 1 420px;max-width:{fig_max}}} figcaption{{font-size:13px;color:#aaa;padding:4px 0}}
+ img{{width:100%;max-height:calc(100vh - 80px);object-fit:contain;background:#000}}
 </style></head><body>
 <header><h1>{title}</h1>{buttons}<span id="msg"></span></header>
-<main><img src="/stream" alt="stream kamera"></main>
+<main>{figures}</main>
 <script>
 async function key(k,label){{
   if(k==='q' && !confirm('Hentikan program di perangkat?')) return;
@@ -55,9 +57,11 @@ class WebView:
         self.min_dt = 1.0 / fps if fps and fps > 0 else 0.0
         self.max_side = max_side
         self.quality = int(jpeg_quality)
-        self._jpg: bytes | None = None
-        self._seq = 0
-        self._last_pub = 0.0
+        # kanal "cabin" = /stream (dipakai juga agen MINERVA), kanal lain = /stream/<nama>
+        self._jpg: dict[str, bytes | None] = {"cabin": None}
+        self._seq: dict[str, int] = {"cabin": 0}
+        self._last_pub: dict[str, float] = {}
+        self._labels: dict[str, str] = {"cabin": "Kamera kabin"}
         self._cond = threading.Condition()
         view = self
 
@@ -71,13 +75,19 @@ class WebView:
                     buttons = "".join(
                         f'<button class="{"stop" if k == "q" else ""}" onclick="key(\'{k}\',\'{v}\')">{v}</button>'
                         for k, v in KEYS.items())
-                    body = PAGE.format(title=view.title, buttons=buttons).encode()
+                    chans = list(view._labels)
+                    figures = "".join(
+                        f'<figure><figcaption>{view._labels[c]}</figcaption>'
+                        f'<img src="{view.stream_path(c)}" alt="{view._labels[c]}"></figure>' for c in chans)
+                    body = PAGE.format(title=view.title, buttons=buttons, figures=figures,
+                                       fig_max="100%" if len(chans) == 1 else "50%").encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
-                elif path == "/stream":
+                elif view.channel_for(path) is not None:
+                    ch = view.channel_for(path)
                     self.send_response(200)
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
@@ -86,8 +96,8 @@ class WebView:
                     try:
                         while True:
                             with view._cond:
-                                view._cond.wait_for(lambda: view._seq != seen, timeout=5.0)
-                                jpg, seen = view._jpg, view._seq
+                                view._cond.wait_for(lambda: view._seq[ch] != seen, timeout=5.0)
+                                jpg, seen = view._jpg[ch], view._seq[ch]
                             if jpg is None:
                                 continue
                             self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n")
@@ -113,18 +123,38 @@ class WebView:
         self.server.daemon_threads = True
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
-    def publish(self, img: np.ndarray) -> None:
-        now = time.monotonic()
-        if now - self._last_pub < self.min_dt:
+    @staticmethod
+    def stream_path(channel: str) -> str:
+        return "/stream" if channel == "cabin" else f"/stream/{channel}"
+
+    def channel_for(self, path: str) -> str | None:
+        for c in self._labels:
+            if path == self.stream_path(c):
+                return c
+        return None
+
+    def add_channel(self, channel: str, label: str) -> None:
+        with self._cond:
+            self._labels[channel] = label
+            self._jpg.setdefault(channel, None)
+            self._seq.setdefault(channel, 0)
+
+    def publish(self, img: np.ndarray | None, channel: str = "cabin") -> None:
+        if img is None:
             return
-        self._last_pub = now
+        now = time.monotonic()
+        if now - self._last_pub.get(channel, 0.0) < self.min_dt:
+            return
+        self._last_pub[channel] = now
         small = resize_max_side(img, self.max_side) if self.max_side else img
         ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:
             return
         with self._cond:
-            self._jpg = buf.tobytes()
-            self._seq += 1
+            if channel not in self._labels:
+                self._labels[channel] = channel
+            self._jpg[channel] = buf.tobytes()
+            self._seq[channel] = self._seq.get(channel, 0) + 1
             self._cond.notify_all()
 
     def close(self) -> None:

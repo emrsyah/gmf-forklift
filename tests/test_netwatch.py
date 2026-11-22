@@ -25,6 +25,18 @@ def test_stale_agent_is_down_and_wifi_route_flagged():
     assert "50.0 s" in nw.reason(row)
 
 
+def test_camera_status(tmp_path):
+    for i, name in enumerate(["vi-output, imx219 10-0010", "Logitech Webcam C930e", "Logitech Webcam C930e"]):
+        (tmp_path / f"video{i}").mkdir()
+        (tmp_path / f"video{i}" / "name").write_text(name + "\n")
+    names = nw.video_devices(str(tmp_path))
+    assert nw.camera_status(names, {"cabin": "imx219", "front": "c930e"}) == {"cabin": True, "front": True}
+    assert nw.camera_status(names[:1], {"cabin": "imx219", "front": "C930e"}) == {"cabin": True, "front": False}
+    assert nw.video_devices(str(tmp_path / "missing")) == []
+    row = nw.summarize(None, None, None, 100.0, 15, {"front": False})
+    assert row["cameras"] == {"front": False}
+
+
 def test_services_missing():
     row = nw.summarize(None, None, None, 100.0, 15)
     assert not row["ok"] and nw.reason(row).startswith("monitor modem")
