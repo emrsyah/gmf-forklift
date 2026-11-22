@@ -87,7 +87,8 @@ class ContinuousRecorder:
         if self.codec == "MJPG":
             wr.set(cv2.VIDEOWRITER_PROP_QUALITY, self.quality)
         self._writer = wr
-        self._ts_file = open(str(path) + ".ts.csv", "w", encoding="utf-8")
+        # line-buffered: timestamp tidak hilang kalau proses mati di tengah segmen
+        self._ts_file = open(str(path) + ".ts.csv", "w", encoding="utf-8", buffering=1)
         self._ts_file.write("frame,ts_ms\n")
         self._seg_start_ms = ts_ms
         self._seg_frames = 0

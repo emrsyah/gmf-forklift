@@ -35,6 +35,9 @@ runtime:
     enabled: true           # data collection di forklift uji (2026-11-22); matikan setelah selesai
     dir: /home/jetson/gmf-forklift/recordings/cabin
     prefix: cabin
+    # Uji 2026-11-22: 960 px ~10 GB/jam (gambar NoIR malam penuh noise -> JPEG besar). 640 px = ukuran input
+    # MediaPipe/YOLO, cukup untuk data.
+    max_side: 640
   front:
     enabled: false          # deteksi depan belum ada di Jetson (perlu YOLO TensorRT); kamera dipakai front_preview
     source:
@@ -49,8 +52,8 @@ runtime:
       focus: null
   front_preview:
     enabled: true
-    # Uji 2026-11-22: C930e terpasang miring, langit di kiri gambar -> putar 90° searah jarum jam.
-    rotate: 90
+    # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
+    rotate: 270
     recording:
       enabled: true         # data collection 2026-11-22; matikan setelah selesai
       dir: /home/jetson/gmf-forklift/recordings/front

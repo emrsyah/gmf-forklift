@@ -187,7 +187,7 @@ continuous_recording:
   dir: recordings/cabin
   prefix: cabin
   segment_s: 300            # 5 menit per file
-  fps: 10                   # cukup untuk anotasi/replay; jaga ukuran (~1-1,5 GB/jam pada 960x720 MJPG)
+  fps: 10                   # cukup untuk anotasi/replay. Ukuran MJPG sangat tergantung noise: Jetson malam 960 px ~10 GB/jam
   max_side: 960
   codec: MJPG               # murah di CPU (Orin Nano tanpa encoder hardware)
   ext: avi
