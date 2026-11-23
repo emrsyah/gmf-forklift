@@ -64,6 +64,9 @@ class WebView:
         self._last_pub: dict[str, float] = {}
         self._labels: dict[str, str] = {"cabin": "Kamera kabin"}
         self._viewers: dict[str, int] = {}     # koneksi stream aktif per kanal; 0 -> tidak perlu encode JPEG
+        # permintaan per penonton: (fps, lebar). Agen MINERVA hanya butuh /stream?fps=2&w=320; tanpa ini
+        # perangkat meng-encode JPEG 960 px 10x/detik lalu agen membuang 8 dan meng-encode ulang sisanya.
+        self._reqs: dict[str, dict] = {}
         self._cond = threading.Condition()
         # diganti utuh (bukan diubah di tempat) oleh loop utama -> aman dibaca thread HTTP
         self.status: dict = {}
@@ -101,13 +104,16 @@ class WebView:
                     self.wfile.write(body)
                 elif view.channel_for(path) is not None:
                     ch = view.channel_for(path)
+                    req = view.parse_request(urlparse(self.path).query)
                     self.send_response(200)
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                     self.end_headers()
                     seen = -1
+                    me = object()
                     with view._cond:
                         view._viewers[ch] = view._viewers.get(ch, 0) + 1
+                        view._reqs.setdefault(ch, {})[me] = req
                     try:
                         while True:
                             with view._cond:
@@ -124,6 +130,7 @@ class WebView:
                     finally:
                         with view._cond:
                             view._viewers[ch] = view._viewers.get(ch, 1) - 1
+                            view._reqs.get(ch, {}).pop(me, None)
                             if view._viewers[ch] <= 0:
                                 # tanpa penonton frame tidak diperbarui: jangan sajikan gambar basi ke penonton baru
                                 view._jpg[ch] = None
@@ -163,17 +170,53 @@ class WebView:
     def viewers(self, channel: str = "cabin") -> int:
         return self._viewers.get(channel, 0)
 
+    def parse_request(self, query: str) -> tuple[float, int | None]:
+        """`?fps=2&w=320` -> (2.0, 320). Dibatasi ke fps/max_side bawaan (penonton tidak bisa minta lebih)."""
+        q = parse_qs(query)
+        default_fps = 1.0 / self.min_dt if self.min_dt > 0 else 0.0     # 0 = tanpa batas
+        try:
+            fps = float(q["fps"][0]) if "fps" in q else default_fps
+        except ValueError:
+            fps = default_fps
+        if default_fps > 0:
+            fps = min(fps, default_fps) if fps > 0 else default_fps
+        try:
+            w = int(q["w"][0]) if "w" in q else None
+        except ValueError:
+            w = None
+        if w is not None and (w <= 0 or (self.max_side and w >= self.max_side)):
+            w = None
+        return fps, w
+
+    def _need(self, channel: str) -> tuple[float, int | None]:
+        """Gabungan permintaan penonton: dt terkecil, lebar terbesar (None = max_side bawaan)."""
+        with self._cond:                      # thread HTTP menambah/menghapus penonton
+            reqs = list(self._reqs.get(channel, {}).values())
+        if not reqs:
+            return self.min_dt, None
+        fps = max(r[0] for r in reqs)
+        dt = 1.0 / fps if fps > 0 else 0.0
+        widths = [r[1] for r in reqs]
+        return dt, (None if any(w is None for w in widths) else max(widths))
+
     def wants(self, channel: str = "cabin") -> bool:
         """True jika frame berikutnya akan dikirim: ada penonton dan jeda `fps` sudah lewat.
         Pemanggil bisa melewati kerja mahal (dekode/rotasi/overlay) kalau False."""
-        return (self._viewers.get(channel, 0) > 0
-                and time.monotonic() - self._last_pub.get(channel, 0.0) >= self.min_dt)
+        if self._viewers.get(channel, 0) <= 0:
+            return False
+        dt, _ = self._need(channel)
+        return time.monotonic() - self._last_pub.get(channel, 0.0) >= dt
 
     def publish(self, img: np.ndarray | None, channel: str = "cabin") -> None:
         if img is None or not self.wants(channel):    # tanpa penonton: jangan encode JPEG
             return
         self._last_pub[channel] = time.monotonic()
-        small = resize_max_side(img, self.max_side) if self.max_side else img
+        _, width = self._need(channel)
+        if width is not None and img.shape[1] > width:
+            small = cv2.resize(img, (width, max(1, round(img.shape[0] * width / img.shape[1]))),
+                               interpolation=cv2.INTER_AREA)
+        else:
+            small = resize_max_side(img, self.max_side) if self.max_side else img
         ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:
             return
