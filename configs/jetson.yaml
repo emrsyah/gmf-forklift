@@ -72,6 +72,10 @@ runtime:
     stream:
       enabled: true
       url: rtsp://127.0.0.1:8554/front
+  # Uji 2026-11-23 (src.main saja, 20 s): bawaan 168% CPU ~20.7 FPS | opencv 2: 129% ~19.5 FPS |
+  # opencv 1: 107% ~18.2 FPS. Thread pool OpenCV berputar saat menunggu; OMP/OpenBLAS=1 tidak berpengaruh.
+  threads:
+    opencv: 2
   alert:
     type: none            # buzzer GPIO belum dipasang; ganti ke gpio setelah wiring (gpio_pin di runtime.yaml)
   ui:
