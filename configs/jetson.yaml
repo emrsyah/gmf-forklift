@@ -50,12 +50,13 @@ runtime:
       weights: models/weights/cabin_best.engine
       every_n_frames: 1
   continuous_recording:
-    enabled: false          # data collection forklift uji 2026-11-22 selesai; nyalakan lagi saat di hangar
+    # Sesi gladi Lembar A berikutnya: rekaman mentah (tanpa overlay) + .ts.csv untuk replay harness.
+    enabled: true
     dir: /home/jetson/gmf-forklift/recordings/cabin
     prefix: cabin
-    # Uji 2026-11-22: 960 px ~10 GB/jam (gambar NoIR malam penuh noise -> JPEG besar). 640 px = ukuran input
-    # MediaPipe/YOLO, cukup untuk data.
-    max_side: 640
+    # Uji 2026-11-22: 960 px ~10 GB/jam (malam, noise). Replay harus melihat gambar yang SAMA dengan live
+    # (960x720, wajah kecil + crop wajah sensitif ukuran) -> 960, bukan 640. Berhenti sendiri jika disk < min_free_gb.
+    max_side: 960
   front:
     enabled: false          # pipeline depan terpisah tidak dipakai; deteksi jalan di front_preview.detect
     # YOLO11n COCO (person) TensorRT FP16, di-build DI Jetson ini (torch CUDA crash -> tensorrt_native):

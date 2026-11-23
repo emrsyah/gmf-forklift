@@ -248,6 +248,13 @@ D10_ppe:
   # -> "tanpa rompi" palsu tiap 20 s. Torso terpotong = rompi tidak bisa dinilai (bukan pelanggaran).
   torso_min_h_over_w: 0.5     # tinggi/lebar kotak torso
   torso_min_h_frac: 0.15      # tinggi torso >= 15% tinggi frame
+  # Klip forklift 2026-11-22/23: orang lain (di samping/belakang forklift) ikut terdeteksi.
+  # Jika wajah pengemudi terlihat, hanya kepala/torso miliknya yang dinilai. Wajah tidak terlihat = semua.
+  driver_only: true
+  driver_head_face_inside_min: 0.5   # >= 50% kotak wajah di dalam kotak kepala
+  driver_torso_x_margin: 0.25        # pusat wajah dalam rentang x torso (+-25% lebar)
+  # `helmet` dan `head_no_helmet` di kepala yang sama (IoU >= ini): yang skornya lebih tinggi menang
+  helmet_conflict_iou: 0.3
 
 vehicle:
   require_moving: false       # true di operasi nyata; false saat uji KPI (pertanyaan terbuka #2)

@@ -51,6 +51,26 @@ def torso_judgeable(box, frame_h: int | None, d10: dict) -> bool:
     return frame_h is None or h >= d10.get("torso_min_h_frac", 0.15) * frame_h
 
 
+def helmet_wins(head: Detection, helmets: list[Detection], d10: dict) -> bool:
+    """`helmet` dan `head_no_helmet` di kepala yang sama (kebingungan model): pakai yang skornya lebih tinggi."""
+    thr = d10.get("helmet_conflict_iou", 0.3)
+    return any(iou(head.xyxy, h.xyxy) >= thr and h.conf >= head.conf for h in helmets)
+
+
+def is_driver_head(box, face_box, d10: dict) -> bool:
+    """Kotak kepala milik pengemudi = sebagian besar kotak wajah ada di dalamnya."""
+    return inside_frac(face_box[:4], box) >= d10.get("driver_head_face_inside_min", 0.5)
+
+
+def is_driver_torso(box, face_box, d10: dict) -> bool:
+    """Torso pengemudi = di bawah wajah dan pusat wajah (x) dalam rentang torso (diperlebar `margin` x lebar)."""
+    fx1, fy1, fx2, fy2 = face_box[:4]
+    x1, y1, x2, y2 = box
+    m = d10.get("driver_torso_x_margin", 0.25) * (x2 - x1)
+    cx = (fx1 + fx2) / 2
+    return x1 - m <= cx <= x2 + m and y1 >= fy1 and y2 > fy2
+
+
 def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts_ms: int = 0,
               face_box=None, yaw: float | None = None, frame_wh: tuple[int, int] | None = None) -> CabinDetections:
     """phone_filter (src.cabin.phone_filter.PhoneFilter) menyaring `phone` relatif terhadap wajah pengemudi;
@@ -64,11 +84,18 @@ def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts
         phone_conf = best.conf if best else 0.0
         phone_box = best.xyxy if best else None
     ppe_conf = d10.get("conf", 0.40)
-    no_helmet = any(d.cls_name == "head_no_helmet" and d.conf >= ppe_conf for d in dets)
+    helmets = [d for d in dets if d.cls_name == "helmet" and d.conf >= ppe_conf]
+    heads = [d for d in dets if d.cls_name == "head_no_helmet" and d.conf >= ppe_conf
+             and not helmet_wins(d, helmets, d10)]
     vests = [d for d in dets if d.cls_name == "vest" and d.conf >= ppe_conf]
     frame_h = frame_wh[1] if frame_wh else None
     torsos = [d for d in dets if d.cls_name == "torso" and d.conf >= ppe_conf
               and torso_judgeable(d.xyxy, frame_h, d10)]
+    if d10.get("driver_only", False) and face_box is not None:
+        # hanya kepala/torso milik pengemudi (wajah dari Face Landmarker); orang lain di gambar diabaikan
+        heads = [d for d in heads if is_driver_head(d.xyxy, face_box, d10)]
+        torsos = [d for d in torsos if is_driver_torso(d.xyxy, face_box, d10)]
+    no_helmet = bool(heads)
     thr = d10.get("vest_iou_max", 0.3)
     in_min = d10.get("vest_inside_min", 0.6)
 
