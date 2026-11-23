@@ -209,13 +209,27 @@ def main(argv=None):
     front = None
     if fp_cfg.get("enabled", False):            # kamera depan: lihat + rekam, belum dideteksi
         from src.io.front_preview import FrontPreview
-        f_rec = None
+        f_rec = f_h264 = None
+        holder: dict = {}
         f_rec_cfg = fp_cfg.get("recording", {}) or {}
         if f_rec_cfg.get("enabled", False) and not a.no_record:
             from src.io.continuous import ContinuousRecorder
-            f_rec = ContinuousRecorder(f_rec_cfg, rt.get("device_id", "laptop-dev"))
+            dev_id = rt.get("device_id", "laptop-dev")
+            if str(f_rec_cfg.get("codec", "MJPG")).upper() == "H264":
+                # H.264 apa adanya dari kamera (source.h264_mux); MJPG hanya cadangan kalau kamera tidak mengirim
+                from src.io.h264_recorder import H264Recorder
+                try:
+                    f_h264 = H264Recorder(f_rec_cfg, dev_id, int(fp_cfg.get("rotate", 0)),
+                                          on_segment=lambda: holder["front"].request_idr())
+                except RuntimeError as e:
+                    print(f"[rekam] H.264 tidak tersedia ({e}); pakai MJPG", flush=True)
+                fb = dict(f_rec_cfg, codec="MJPG", ext="avi")
+                f_rec = ContinuousRecorder(fb, dev_id)
+            else:
+                f_rec = ContinuousRecorder(f_rec_cfg, dev_id)
             print(f"[rekam] kamera depan direkam -> {f_rec.dir}", flush=True)
-        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec)
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, f_h264)
+        holder["front"] = front
     t_log, n_log = time.monotonic(), 0
     face_log: list = []
     if show and rt.get("ui", {}).get("fullscreen", False):

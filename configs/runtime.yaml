@@ -73,6 +73,14 @@ front:
     fourcc: MJPG            # tanpa ini C930e jatuh ke YUY2: 720p ~10 fps, 1080p ~5 fps
     autofocus: false        # kunci fokus: kalibrasi papan catur hanya berlaku untuk fokus yang sama
     focus: 0                # 0 = tak hingga (C930e: 0..255); jalur forklift jauh dari kamera
+    # H.264 tersisip di frame MJPG oleh kamera sendiri (C930e, extension unit UVC H.264). Hanya Linux/V4L2
+    # (Jetson). Ukuran & FPS mengikuti width/height/fps di atas. Gagal -> webcam MJPG biasa.
+    h264_mux:
+      enabled: false
+      bitrate: 3000000        # bit/s; ~3 Mbps cukup untuk 720p dan muat di uplink 5G
+      iframe_period_ms: 1000  # jarak keyframe yang diminta (kamera bisa memakai jarak lain saat FPS turun)
+      profile: constrained_baseline
+      unit_id: null           # null = cari otomatis dari deskriptor USB
   yolo:
     backend: ultralytics
     weights: models/weights/yolo11n.pt   # COCO pretrained; nanti front_best
@@ -210,8 +218,13 @@ front_preview:
     segment_s: 300
     fps: 10
     max_side: 1280
+    # MJPG: frame didekode lalu di-encode ulang (cuplik `fps`). H264: aliran H.264 kamera disimpan apa adanya
+    # (perlu front.source.h264_mux aktif + ffmpeg), SEMUA frame, ~4-5x lebih kecil, tanpa beban encode.
+    # Kalau kamera tidak mengirim H.264, otomatis kembali ke MJPG (fps/max_side/jpeg_quality di atas).
     codec: MJPG
     ext: avi
+    h264_ext: mp4             # MP4 terfragmentasi (tetap bisa dibuka walau proses mati di tengah segmen)
+    ffmpeg: ffmpeg
     jpeg_quality: 85
     min_free_gb: 15
     max_queue: 60

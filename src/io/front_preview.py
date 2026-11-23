@@ -23,12 +23,15 @@ def rotate(img: np.ndarray, deg: int) -> np.ndarray:
 
 
 class FrontPreview:
-    def __init__(self, source_cfg: dict, cfg: dict, web=None, recorder=None):
+    def __init__(self, source_cfg: dict, cfg: dict, web=None, recorder=None, h264_recorder=None):
         self.source_cfg = source_cfg
         self.rotate = int(cfg.get("rotate", 0))
         self.retry_s = float(cfg.get("retry_s", 5))
         self.web = web
-        self.recorder = recorder
+        self.recorder = recorder            # MJPG (cuplik ~fps); cadangan kalau kamera tidak mengirim H.264
+        self.h264_recorder = h264_recorder  # H.264 dari kamera, tanpa encode ulang (src.capture.uvch264)
+        self._src = None
+        self._mode: str | None = None
         self.frames = 0
         self.connected = False
         self._stop = threading.Event()
@@ -50,23 +53,42 @@ class FrontPreview:
                 continue
             self.connected = True
             print("[depan] kamera depan tersambung", flush=True)
+            self._src = src
             with src:
                 for fr in src:
                     if self._stop.is_set():
                         break
                     img = rotate(fr.image, self.rotate)
-                    if self.recorder is not None:
+                    au = fr.meta.get("h264")
+                    if self.h264_recorder is not None and au is not None:
+                        self._log_mode("H.264 dari kamera")
+                        self.h264_recorder.push(au, fr.ts_ms, fr.meta.get("h264_idr"))
+                    elif self.recorder is not None:
+                        self._log_mode("MJPG")
                         self.recorder.push(img, fr.ts_ms)
                     if self.web is not None:
                         self.web.publish(img, "front")
                     self.frames += 1
+            self._src = None
             if not self._stop.is_set():
                 print("[depan] kamera depan terputus", flush=True)
                 self.connected = False
                 self._stop.wait(self.retry_s)
 
+    def _log_mode(self, mode: str) -> None:
+        if mode != self._mode:
+            self._mode = mode
+            print(f"[depan] rekaman: {mode}", flush=True)
+
+    def request_idr(self) -> None:
+        """Dipanggil perekam H.264 saat segmen jatuh tempo: minta keyframe agar segmen cepat berganti."""
+        src = self._src
+        if src is not None and hasattr(src, "request_idr"):
+            src.request_idr()
+
     def close(self, timeout_s: float = 3.0) -> None:
         self._stop.set()
         self._thread.join(timeout_s)
-        if self.recorder is not None:
-            self.recorder.close()
+        for rec in (self.recorder, self.h264_recorder):
+            if rec is not None:
+                rec.close()

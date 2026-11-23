@@ -219,6 +219,11 @@ class ArraySource(FrameSource):
 def make_source(cfg: dict) -> FrameSource:
     """Buat sumber dari blok config `source:` (runtime.yaml)."""
     t = cfg.get("type", "webcam")
+    if t == "webcam" and (cfg.get("h264_mux") or {}).get("enabled", False):
+        from src.capture.uvch264 import UvcH264WebcamSource   # H.264 dari kamera (C930e), lihat modulnya
+        return UvcH264WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
+                                   cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc", "MJPG"),
+                                   cfg.get("autofocus"), cfg.get("focus"), cfg.get("h264_mux"))
     if t == "webcam":
         return WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
                             cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc"),

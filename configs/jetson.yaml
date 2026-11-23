@@ -50,6 +50,14 @@ runtime:
       fps: 30
       autofocus: null       # biarkan bawaan kamera sampai dikalibrasi di posisi pasang final
       focus: null
+      # Uji 2026-11-23: C930e di Jetson mengirim H.264 1280x720 Constrained Baseline tersisip di MJPG,
+      # ~2.7 Mbps vs ~12 Mbps MJPG; dipakai rekaman tanpa encode ulang.
+      h264_mux:
+        enabled: true
+        bitrate: 3000000
+        iframe_period_ms: 1000
+        profile: constrained_baseline
+        unit_id: null
   front_preview:
     enabled: true
     # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
@@ -57,6 +65,7 @@ runtime:
     recording:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front
+      codec: H264           # simpan H.264 kamera apa adanya (MP4 + .ts.csv); MJPG otomatis jika H.264 tidak ada
   alert:
     type: none            # buzzer GPIO belum dipasang; ganti ke gpio setelah wiring (gpio_pin di runtime.yaml)
   ui:
