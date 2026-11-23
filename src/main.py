@@ -300,7 +300,9 @@ def main(argv=None):
                 # overlay hanya digambar kalau ada yang memakai frame ini (CPU Jetson: tanpa penonton web
                 # dan tanpa sink live, menggambar tiap frame itu sia-sia)
                 live_due = live.due(now_ms) and sinks.wants_frames()
-                need_vis = (show or recorder is not None or (web is not None and web.wants("cabin"))
+                # klip hanya menyimpan `recording.fps` (15) dari ~20 fps pipeline: frame lain tak perlu digambar
+                need_vis = (show or (recorder is not None and recorder.wants(frame.ts_ms))
+                            or (web is not None and web.wants("cabin"))
                             or (live_due and live.overlay))
                 tq = time.perf_counter()
                 vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) if need_vis else None

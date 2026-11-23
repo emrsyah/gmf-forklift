@@ -90,10 +90,13 @@ class ClipRecorder:
         ok, b = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         return b.tobytes() if ok else b""
 
-    def push(self, img: np.ndarray, ts_ms: int, label: str = "") -> None:
+    def wants(self, ts_ms: int) -> bool:
+        """True jika frame pada `ts_ms` akan disimpan (pemanggil bisa melewati gambar overlay kalau False)."""
+        return self._last_keep_ms is None or ts_ms - self._last_keep_ms >= 1000.0 / self.fps * 0.95
+
+    def push(self, img: np.ndarray | None, ts_ms: int, label: str = "") -> None:
         """Panggil setiap frame (gambar dengan overlay jika ingin). Disubsample ke fps rekaman."""
-        step = 1000.0 / self.fps
-        if self._last_keep_ms is not None and ts_ms - self._last_keep_ms < step * 0.95:
+        if not self.wants(ts_ms) or img is None:
             if self._q is None:      # mode async: dicek thread encoder setelah frame antrean masuk klip
                 self._check_pending(ts_ms)
             return

@@ -8,7 +8,7 @@ import numpy as np
 
 from src.capture import Frame
 from src.decision import Action, DecisionEngine
-from src.preprocess import crop_roi, simulate_nir
+from src.preprocess import crop_roi, gray3, simulate_nir
 
 from .calibration import Calibration
 from .camblock import PartialBlock, frame_stats, is_blocked
@@ -77,6 +77,11 @@ class CabinPipeline:
         self.phone_crop = PhoneCrop(thresholds.get("D06_phone", {}).get("crop"))
         d09 = thresholds.get("D09_camera_block", {})
         self.partial_block = PartialBlock(d09.get("partial"), d09.get("mean_min", 15), d09.get("mean_max", 240))
+        # cabin.yolo.parallel: YOLO di thread sendiri, paralel dengan MediaPipe (satu thread -> urutan tetap)
+        self._yolo_pool = None
+        if self.detector is not None and cab.get("yolo", {}).get("parallel", True):
+            from concurrent.futures import ThreadPoolExecutor
+            self._yolo_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yolo")
         self._n = 0
         self._t_first_ms: int | None = None
         self._last_face_ms: int | None = None
@@ -90,9 +95,27 @@ class CabinPipeline:
         stats = frame_stats(raw, self.th.get("D09_camera_block", {}).get("downscale_px", 160))
         blocked = is_blocked(stats, self.th.get("D09_camera_block", {}))
 
-        img = simulate_nir(raw, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8)) \
-            if self.simulate_nir else raw
+        if self.simulate_nir:
+            img = simulate_nir(raw, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
+        else:
+            img = gray3(raw) if raw.ndim == 2 else raw    # sumber GRAY8: model butuh 3 channel
         roi_img, off = crop_roi(img, self.cab.get("roi"))
+
+        # YOLO (GPU) tidak bergantung pada hasil wajah -> dikirim ke thread pekerja SEBELUM MediaPipe (CPU),
+        # hasilnya diambil sesudahnya. Input sama persis dengan mode berurutan -> deteksi identik.
+        yolo_job = None
+        if self.detector is not None and (self._n % self.yolo_every == 0 or self._last_yolo is None):
+            yolo_in = roi_img
+            if self.cab.get("yolo", {}).get("preprocess", "nir") == "nir" and not self.simulate_nir:
+                # sama dengan training (Tech Spec bag. 5): grayscale 3 channel + CLAHE
+                yolo_in = simulate_nir(roi_img, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
+            det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
+                           self.th.get("D10_ppe", {}).get("conf", 0.40))
+            if self._yolo_pool is not None:
+                fut = self._yolo_pool.submit(self._predict_timed, yolo_in, det_conf)
+            else:
+                fut = self._predict_timed(yolo_in, det_conf)
+            yolo_job = (yolo_in, det_conf, fut)
 
         t1 = time.perf_counter()
         obs = self.face.process(roi_img, frame.ts_ms, off)
@@ -106,15 +129,11 @@ class CabinPipeline:
 
         yolo = None
         if self.detector is not None:
-            if self._n % self.yolo_every == 0 or self._last_yolo is None:
+            if yolo_job is not None:
                 t2 = time.perf_counter()
-                yolo_in = roi_img
-                if self.cab.get("yolo", {}).get("preprocess", "nir") == "nir" and not self.simulate_nir:
-                    # sama dengan training (Tech Spec bag. 5): grayscale 3 channel + CLAHE
-                    yolo_in = simulate_nir(roi_img, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
-                det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
-                               self.th.get("D10_ppe", {}).get("conf", 0.40))
-                dets = self.detector.predict(yolo_in, conf=det_conf)
+                yolo_in, det_conf, fut = yolo_job
+                dets, tm["yolo_gpu"] = fut.result() if hasattr(fut, "result") else fut
+                tm["yolo_wait"] = (time.perf_counter() - t2) * 1000
                 face_box = face_box_from_landmarks(obs.landmarks_px) if obs.present else None
                 if self.phone_crop.enabled:
                     # pass kedua: ponsel di potongan area pengemudi (koordinat ROI, sama dengan `dets`)
@@ -133,7 +152,7 @@ class CabinPipeline:
                     phone_filter=self.phone_filter, ts_ms=frame.ts_ms,
                     face_box=face_box,
                     yaw=obs.yaw_raw if obs.present else None, frame_wh=(img.shape[1], img.shape[0]))
-                tm["yolo"] = (time.perf_counter() - t2) * 1000
+                tm["yolo"] = tm["yolo_gpu"] + (time.perf_counter() - t2) * 1000 - tm["yolo_wait"]
             yolo = self._last_yolo
         self._n += 1
 
@@ -160,6 +179,11 @@ class CabinPipeline:
         top = min(active, key=self.decision.rank) if active else None
         tm["total"] = (time.perf_counter() - t0) * 1000
         return CabinState(frame, img, obs, sig, stats, blocked, yolo, active, top, actions, tm)
+
+    def _predict_timed(self, image: np.ndarray, conf: float):
+        t = time.perf_counter()
+        dets = self.detector.predict(image, conf=conf)
+        return dets, (time.perf_counter() - t) * 1000
 
     def _auto_recalibrate(self, face_present: bool, ts_ms: int):
         """Wajah hilang lama lalu muncul lagi (ganti pengemudi / kembali ke kursi) -> kalibrasi ulang."""

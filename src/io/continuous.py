@@ -168,6 +168,8 @@ class ContinuousRecorder:
             if item is None:
                 break
             img, ts_ms = item
+            if img.ndim == 2:            # sumber GRAY8 (Jetson): writer MJPG/x264 butuh BGR
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             if self.max_side and max(img.shape[:2]) > self.max_side:
                 s = self.max_side / max(img.shape[:2])
                 img = cv2.resize(img, (round(img.shape[1] * s), round(img.shape[0] * s)), interpolation=cv2.INTER_AREA)

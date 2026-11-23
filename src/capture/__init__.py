@@ -122,8 +122,21 @@ class UrlSource(_LiveSource):
 class GStreamerSource(_LiveSource):
     """Fase 2 (Jetson): pipeline nvarguscamerasrc / v4l2src yang diakhiri appsink."""
 
-    def __init__(self, pipeline: str):
+    def __init__(self, pipeline: str, gray_range: str = "full"):
         super().__init__(cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER), pipeline)
+        # nvvidconv format=GRAY8 = luma Y studio range (16..235). Diregangkan ke 0..255 supaya nilai abu-abu
+        # sama dengan cvtColor(BGR->GRAY) jalur lama (ambang D-09, input CLAHE). Uji 2026-11-23 di Jetson:
+        # BGR p1/p99 = 31/253, GRAY8 mentah 43/234 -> setelah regang 31/254.
+        self._lut = None
+        if gray_range == "limited":
+            x = np.arange(256, dtype=np.float32)
+            self._lut = np.clip((x - 16.0) * 255.0 / 219.0, 0, 255).round().astype(np.uint8)
+
+    def read(self) -> Optional[Frame]:
+        f = super().read()
+        if f is not None and self._lut is not None and f.image.ndim == 2:
+            f.image = cv2.LUT(f.image, self._lut)
+        return f
 
 
 def sidecar_ts_path(video: str | Path) -> Path:
@@ -234,7 +247,7 @@ def make_source(cfg: dict) -> FrameSource:
     if t == "url":
         return UrlSource(cfg["url"])
     if t == "gstreamer":
-        return GStreamerSource(cfg["pipeline"])
+        return GStreamerSource(cfg["pipeline"], cfg.get("gray_range", "full"))
     raise ValueError(f"Tipe sumber tidak dikenal: {t}")
 
 
