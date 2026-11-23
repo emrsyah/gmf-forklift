@@ -112,6 +112,9 @@ class WebView:
                     finally:
                         with view._cond:
                             view._viewers[ch] = view._viewers.get(ch, 1) - 1
+                            if view._viewers[ch] <= 0:
+                                # tanpa penonton frame tidak diperbarui: jangan sajikan gambar basi ke penonton baru
+                                view._jpg[ch] = None
                 else:
                     self.send_error(404)
 

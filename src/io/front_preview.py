@@ -60,12 +60,15 @@ class FrontPreview:
     def _handle(self, fr) -> None:
         from src.capture.uvch264 import decode_frame
         au = fr.meta.get("h264")
-        h264_on = au is not None and bool(self.h264_sinks)
-        if h264_on:
-            self._log_mode("H.264 dari kamera")
-            for s in self.h264_sinks:
+        alive = [s for s in self.h264_sinks if getattr(s, "stopped_reason", None) is None]
+        if au is not None:
+            for s in alive:
                 s.push(au, fr.ts_ms, fr.meta.get("h264_idr"))
-        need_rec = not h264_on and self.recorder is not None and self.recorder.wants(fr.ts_ms)
+        # rekaman H.264 berjalan -> MJPG tidak perlu; kamera tanpa H.264 atau perekam H.264 berhenti -> MJPG
+        h264_recording = au is not None and any(getattr(s, "records", False) for s in alive)
+        if h264_recording:
+            self._log_mode("H.264 dari kamera")
+        need_rec = not h264_recording and self.recorder is not None and self.recorder.wants(fr.ts_ms)
         need_web = self.web is not None and self.web.wants("front")
         if need_rec or need_web:
             img = decode_frame(fr)

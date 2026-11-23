@@ -31,6 +31,16 @@ class _FfmpegRtsp:
                "-f", "rtsp", "-rtsp_transport", transport, url]
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE)
+        self._err = b""
+        # stderr dibaca terus (proses hidup lama): pipa penuh bisa membuat ffmpeg macet
+        threading.Thread(target=self._drain, daemon=True).start()
+
+    def _drain(self) -> None:
+        try:
+            for line in self.proc.stderr:
+                self._err = (self._err + line)[-600:]
+        except (OSError, ValueError):
+            pass
 
     def alive(self) -> bool:
         return self.proc.poll() is None
@@ -40,10 +50,7 @@ class _FfmpegRtsp:
         self.proc.stdin.flush()
 
     def error_text(self) -> str:
-        try:
-            return (self.proc.stderr.read() or b"").decode(errors="replace").strip()[-300:]
-        except (OSError, ValueError):
-            return ""
+        return self._err.decode(errors="replace").strip()[-300:]
 
     def close(self, timeout_s: float = 5.0) -> None:
         try:
@@ -95,8 +102,14 @@ class H264RtspPublisher:
             self._resync = True
 
     def close(self, timeout_s: float = 5.0) -> None:
-        self._q.put(None)
+        try:
+            self._q.put(None, timeout=timeout_s)    # penulis macet + antrean penuh: jangan menggantung
+        except queue.Full:
+            pass
         self._thread.join(timeout_s)
+        conn = self._conn
+        if self._thread.is_alive() and conn is not None:
+            conn.close(0)                           # lepaskan penulis yang tertahan di pipa
 
     def _drop_conn(self, why: str) -> None:
         if self._conn is not None:

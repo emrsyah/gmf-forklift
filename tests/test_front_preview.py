@@ -107,6 +107,32 @@ def test_front_preview_mjpg_fallback_decodes_only_sampled_frames(tmp_path):
     assert rec.frames == fp.decoded
 
 
+def test_front_preview_falls_back_to_mjpg_when_h264_recorder_stops(tmp_path):
+    from src.capture import Frame
+    from src.io.continuous import ContinuousRecorder
+    from src.io.front_preview import FrontPreview
+
+    class _H264Rec(_Sink):
+        records = True
+        stopped_reason = None
+
+    jpg = _jpeg()
+    h264rec = _H264Rec()
+    rec = ContinuousRecorder({"dir": str(tmp_path), "fps": 10, "min_free_gb": 0, "max_side": 0})
+    fp = FrontPreview({"type": "webcam"}, {"retry_s": 60}, None, rec, [h264rec],
+                      source_factory=lambda cfg: (_ for _ in ()).throw(RuntimeError("tidak dipakai")))
+    fr = lambda i: Frame(None, 1000 + 100 * i, i, 0.0, {"jpeg": jpg, "h264": b"au", "h264_idr": False})  # noqa: E731
+    for i in range(5):
+        fp._handle(fr(i))
+    assert len(h264rec.aus) == 5 and fp.decoded == 0          # H.264 jalan: MJPG diam
+    h264rec.stopped_reason = "ffmpeg mati"
+    for i in range(5, 10):
+        fp._handle(fr(i))
+    assert len(h264rec.aus) == 5 and fp.decoded == 5          # perekam H.264 berhenti -> MJPG ambil alih
+    fp.close()
+    assert rec.frames == 5
+
+
 def test_web_view_channels():
     v = WebView(0, queue.Queue(), fps=0)
     try:

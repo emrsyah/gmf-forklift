@@ -43,6 +43,7 @@ def test_page_stream_and_keys():
             v.publish(img)                                    # server baru tahu putus saat menulis
             time.sleep(0.05)
         assert v.viewers("cabin") == 0
+        assert v._jpg["cabin"] is None                        # penonton berikutnya tidak dapat frame basi
 
         req = urllib.request.Request(base + "/key?k=c", method="POST")
         assert urllib.request.urlopen(req, timeout=5).status == 204

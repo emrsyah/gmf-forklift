@@ -92,6 +92,8 @@ class FfmpegMp4Sink:
 
 
 class H264Recorder:
+    records = True      # front_preview: selama perekam ini hidup, perekam MJPG cadangan tidak dipakai
+
     def __init__(self, cfg: dict, device_id: str = "dev", rotate: int = 0,
                  sink_factory: Optional[Callable[[Path], _Sink]] = None,
                  on_segment: Optional[Callable[[], None]] = None):
@@ -142,7 +144,10 @@ class H264Recorder:
             self._resync = True                 # rantai referensi putus: tunggu IDR berikutnya
 
     def close(self, timeout_s: float = 10.0) -> None:
-        self._q.put(None)
+        try:
+            self._q.put(None, timeout=timeout_s)    # penulis macet + antrean penuh: jangan menggantung
+        except queue.Full:
+            pass
         self._thread.join(timeout_s)
 
     # ---------------------------------------------------------------- thread penulis
