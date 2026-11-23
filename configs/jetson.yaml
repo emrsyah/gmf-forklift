@@ -32,7 +32,7 @@ runtime:
       weights: models/weights/cabin_best.engine
       every_n_frames: 1
   continuous_recording:
-    enabled: true           # data collection di forklift uji (2026-11-22); matikan setelah selesai
+    enabled: false          # data collection forklift uji 2026-11-22 selesai; nyalakan lagi saat di hangar
     dir: /home/jetson/gmf-forklift/recordings/cabin
     prefix: cabin
     # Uji 2026-11-22: 960 px ~10 GB/jam (gambar NoIR malam penuh noise -> JPEG besar). 640 px = ukuran input
@@ -55,7 +55,7 @@ runtime:
     # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
     rotate: 270
     recording:
-      enabled: true         # data collection 2026-11-22; matikan setelah selesai
+      enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front
   alert:
     type: none            # buzzer GPIO belum dipasang; ganti ke gpio setelah wiring (gpio_pin di runtime.yaml)
