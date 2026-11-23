@@ -305,7 +305,7 @@ class D04HeadDrop(Indicator):
                 self._down_since = x.ts_ms
             elif self._down_since is not None and s.pitch > -c.get("nod_return_deg", 8):
                 dur = (x.ts_ms - self._down_since) / 1000.0
-                if dur <= c.get("nod_max_s", 2.0):
+                if c.get("nod_min_s", 0.0) <= dur <= c.get("nod_max_s", 2.0):
                     self.nods.append(x.ts_ms)
                     self._first_nod_start.append(self._down_since)
                 self._down_since = None
@@ -357,6 +357,7 @@ class D05Distraction(Indicator):
         self._last_off: tuple[bool, bool] | None = None   # status off-road terakhir saat wajah masih ada
         self._last_face_ms = 0
         self._now_ms = 0
+        self._off_vis_start: int | None = None   # awal off-road yang terlihat (wajah ada) saat ini
 
     def off_road(self, s: FaceSignals, hyst_deg: float = 0.0) -> tuple[bool, bool]:
         """(off_road, karena_pitch_saja) untuk wajah yang terdeteksi."""
@@ -382,7 +383,12 @@ class D05Distraction(Indicator):
             # wajah hilang tepat setelah menoleh/menunduk jauh (mis. lihat pangkuan dalam-dalam):
             # status off-road terakhir dipertahankan sebentar. Tidak berlaku saat kamera terhalang (D-09).
             hold = self.c.get("face_lost_offroad_hold_s")
-            if (hold is not None and not blocked_frame and self._last_off is not None
+            # off-road karena yaw harus sudah terlihat cukup lama: lirikan/sentakan sekejap lalu wajah hilang
+            # (menguap, tangan di wajah) bukan menoleh (uji_yawn 112.5 s: yaw > 30 hanya 0.15 s -> D-05 palsu)
+            yaw_ok = (self._last_off is None or self._last_off[1] or self._off_vis_start is None
+                      or self._last_face_ms - self._off_vis_start
+                      >= self.c.get("face_lost_hold_min_yaw_off_s", 0.0) * 1000)
+            if (hold is not None and not blocked_frame and self._last_off is not None and yaw_ok
                     and self._now_ms - self._last_face_ms <= hold * 1000):
                 return True, True, self._last_off[1]
             return False, False, False
@@ -390,6 +396,10 @@ class D05Distraction(Indicator):
         hyst, hyst_pitch_only = self.off_road(s, self.c.get("hysteresis_deg", 0.0) if self._was_off else 0.0)
         self._last_face_ms = self._now_ms
         self._last_off = (True, hyst_pitch_only) if hyst else None
+        if not hyst:
+            self._off_vis_start = None
+        elif self._off_vis_start is None:
+            self._off_vis_start = self._now_ms
         return raw, hyst, hyst_pitch_only
 
     def update(self, x):

@@ -131,6 +131,20 @@ def test_d05_look_down_lap():
     assert run_indicator(D05Distraction(TH["D05_distraction"]), Timeline().opened(3).add(1.6, dict(pitch=-35)))[-1]
 
 
+def test_d05_face_lost_hold_needs_sustained_yaw():
+    th = TH["D05_distraction"]
+    lost = dict(face_present=False)
+    # uji_yawn: yaw > 30 hanya 0,15 s lalu wajah hilang 1,5 s (menguap) -> bukan menoleh
+    flick = Timeline().opened(3).add(0.15, dict(yaw=45)).add(1.5, lost).opened(1)
+    assert not any(run_indicator(D05Distraction(th), flick))
+    # menoleh sungguhan 0,8 s lalu wajah hilang (profil) -> status off-road ditahan -> D-05
+    turn = Timeline().opened(3).add(0.8, dict(yaw=45)).add(1.5, lost)
+    assert run_indicator(D05Distraction(th), turn)[-1]
+    # lihat pangkuan (pitch) tetap ditahan walau sekejap sebelum wajah hilang (skenario 9)
+    lap = Timeline().opened(3).add(0.15, dict(pitch=-35)).add(1.6, lost)
+    assert run_indicator(D05Distraction(th), lap)[-1]
+
+
 def test_d05_alternating_every_1s_accumulates():
     # skenario 11: menoleh kanan-kiri tiap 1 s, melewati tengah 0,3 s -> tidak pernah 1,5 s berturut-turut
     th = dict(TH["D05_distraction"])

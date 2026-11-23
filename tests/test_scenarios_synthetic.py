@@ -83,6 +83,17 @@ def test_s18_nodding_is_D04():
     assert (e["code"], e["level"]) == ("D04", "A-03")
 
 
+def test_s18_slow_nods_count_and_fast_jerks_do_not():
+    # sim_P1c no 18: anggukan "perlahan" sampai ~2-3 s di bawah ambang (dulu > nod_max_s 2.0 -> terlewat)
+    # kedalaman -22: di bawah ambang anggukan (-15), di atas ambang D-05 (-25); risiko anggukan dalam -> lihat bawah
+    slow = dict(depth=-22, down_s=1.0, hold_s=1.6, up_s=1.0, n=4)          # ~2,2 s di bawah -15 per anggukan
+    e = first_start(_nod_session(**slow))
+    assert (e["code"], e["level"]) == ("D04", "A-03")
+    assert first_start(_nod_session(**slow), thresholds({"D04_head_drop": {"nod_max_s": 2.0}})) is None
+    # uji_yawn: sentakan kepala saat menguap 0.2-0.5 s -> bukan anggukan
+    assert first_start(_nod_session(depth=-25, down_s=0.15, hold_s=0.1, up_s=0.15, n=6)) is None
+
+
 def test_s18_slow_deep_nod_risk_and_mitigation():
     """Risiko K4: anggukan lambat dan dalam -> pitch < -25 lebih dari 1,5 s -> D-05 terkirim duluan.
 
@@ -156,7 +167,8 @@ def test_dashboard_glances_false_D04_risk_and_mitigation():
     """Risiko alarm palsu: dua lirikan ke dasbor (pitch -20 selama 0,6 s) dalam 30 s memenuhi definisi
     'anggukan' di spec (turun > 15 lalu kembali < 2 s, >= 2 kali) -> D-04 A-03 palsu.
     Opsi mitigasi: nod_count 3 (skenario 18 berisi banyak anggukan dalam 30 s, tetap terdeteksi)."""
-    spec = thresholds({"D04_head_drop": {"nod_count": 2, "nod_active_hold_s": None}})
+    spec = thresholds({"D04_head_drop": {"nod_count": 2, "nod_active_hold_s": None, "nod_min_s": 0.0,
+                                         "nod_max_s": 2.0}})
     ev, _ = run_system(_normal_session(dash_glances=True), spec)
     assert any(e["code"] == "D04" for e in starts(ev))          # spec-literal: alarm palsu
     ev, _ = run_system(_normal_session(dash_glances=True))      # config sekarang (nod_count 3)

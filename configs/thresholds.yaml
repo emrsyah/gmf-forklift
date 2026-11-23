@@ -39,6 +39,20 @@ calibration:
   duration_s: 5.0
   min_frames: 30
   max_ear_std: 0.04           # tolak kalibrasi jika EAR terlalu bervariasi
+  # tolak kalibrasi saat mata terpejam (terpejam diam lolos cek variansi): rata-rata blendshape blink > ini,
+  # atau median EAR < population_ear_baseline x rasio ini
+  max_blink_mean: 0.5
+  min_ear_ratio_population: 0.5   # 0.14: mata sipit/NIR terbuka masih di atas, terpejam (~0.08-0.10) di bawah
+  # Selama kalibrasi belum berhasil (mencoba / gagal -> populasi): baseline = persentil EAR wajah frontal di
+  # jendela terakhir, tidak di bawah populasi x min_ear_ratio_population. Bukan dari spec: sim_P1b/P1c peraga
+  # memejam sejak awal -> 3x gagal -> populasi 0.28 vs EAR terbuka peraga ~0.17 -> pejam palsu 11 s (D-02 di D-01).
+  adaptive_baseline:
+    enabled: true
+    window_s: 60
+    percentile: 85
+    min_s: 5
+    max_abs_yaw_deg: 20
+    max_abs_pitch_deg: 20
   max_pose_std_deg: 5.0
   population_ear_baseline: 0.28   # fallback jika belum dikalibrasi (EAR mata terbuka rata-rata populasi)
   max_attempts: 3             # setelah gagal sekian kali -> baseline populasi (hotkey c untuk ulang)
@@ -128,7 +142,12 @@ D02_long_closure:
 D04_head_drop:
   nod_drop_deg: 15
   nod_return_deg: 8
-  nod_max_s: 2.0
+  # Spec 2.0. Lembar A no 18 = "tunduk PERLAHAN lalu tegak": di sim_P1c anggukan 1.5-3.1 s (satu 2.02 s ->
+  # hanya 2 terhitung, skenario terlewat). Lihat pangkuan (no 9) 3.6 s, miring (no 19) 4.8 s tetap di atas.
+  nod_max_s: 3.0
+  # Bukan dari spec: sentakan kepala cepat (menguap, tertawa) di uji_yawn 0.19 / 0.46 s -> 3 "anggukan" ->
+  # D-04 A-03 palsu di video normal. Anggukan kantuk "perlahan" >= 1.5 s di sim_P1c. 0 = mati (spec).
+  nod_min_s: 0.8
   # Spec: 2. Diganti 3 (disetujui 2026-11-14): uji live webcam -> 2 lirikan ke bawah (keyboard/layar)
   # dalam 5 s memicu D-04 A-03 palsu (risiko K4 #2). Skenario 18 (30 s mengangguk) tetap >= 3 anggukan.
   nod_count: 3
@@ -159,6 +178,9 @@ D05_distraction:
   #   Jika wajah hilang tepat setelah off-road (dan kamera tidak terhalang), status off-road
   #   terakhir dipertahankan maksimal sekian detik. null = mati (spec).
   face_lost_offroad_hold_s: 5.0
+  # ...tetapi untuk off-road karena YAW, hanya jika sudah terlihat >= sekian detik sebelum wajah hilang.
+  # uji_yawn 112.5 s (video normal): yaw lompat 30->53 dalam 0.15 s lalu wajah hilang -> D-05 palsu. 0 = mati.
+  face_lost_hold_min_yaw_off_s: 0.5
 
 D06_phone:
   # Spec awal 0.35. Di-tune pada split VALIDASI cabin_v0 (data publik, 137 ponsel):
@@ -263,6 +285,9 @@ D09_camera_block:
     # 0.6 -> 0.45 (2026-11-18, SATU rekaman webcam P1 uji_yawn_P1): tutup 3/4 = 0.50-0.62, tutup 1/2 =
     # 0.25-0.50, keluar frame (kursi kosong) maks 0.19, gosok mata maks 0.12. Belum divalidasi orang/kamera lain.
     frac_min: 0.45
+    # uji_yawn 157-163 s (tutup 1/2, wajah hilang 2.5 s): fraksi berayun 0.44 <-> 0.50 di sekitar frac_min ->
+    # hitungan hold 1 s terus ter-reset, D-09 terlewat. Lepas hanya jika < ini (keluar frame maks 0.19).
+    frac_exit: 0.30
     baseline_alpha: 0.05
     warmup_frames: 15
 

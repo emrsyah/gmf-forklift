@@ -122,10 +122,10 @@ def test_d04_buzzes_long_after_nodding_stops_and_hold_option_fixes_it():
 
 
 # ------------------------------------------------------------------ kalibrasi
-def _feed(cal, n, ts0=0, **pose):
+def _feed(cal, n, ts0=0, ear=0.30, blink=0.0, **pose):
     for i in range(n):
-        raw = {"ear_l": 0.30, "ear_r": 0.30, "yaw": pose.get("yaw", 0.0), "pitch": pose.get("pitch", 0.0),
-               "roll": pose.get("roll", 0.0)}
+        raw = {"ear_l": ear, "ear_r": ear, "blink": blink, "yaw": pose.get("yaw", 0.0),
+               "pitch": pose.get("pitch", 0.0), "roll": pose.get("roll", 0.0)}
         cal.observe(ts0 + i * 33, raw)
     return ts0 + n * 33
 
@@ -145,12 +145,49 @@ def test_calibration_rejects_tilted_head_then_falls_back():
     for _ in range(CAL["max_attempts"]):
         ts = _feed(cal, 160, ts, roll=30)   # skenario 19: kepala miring bertahan
     assert not cal.done and not cal.active
-    assert "populasi" in cal.status and cal.ear_baseline == CAL["population_ear_baseline"]
+    assert "populasi" in cal.status
+    assert cal.ear_baseline == pytest.approx(0.30)          # baseline adaptif (EAR peraga), bukan populasi 0.28
+    off = Calibration({**CAL, "adaptive_baseline": {"enabled": False}})
+    for i in range(CAL["max_attempts"]):
+        _feed(off, 160, i * 160 * 33, roll=30)
+    assert off.ear_baseline == CAL["population_ear_baseline"]
     _feed(cal, 400, ts, roll=30)            # tidak lagi mencoba -> tidak terkunci di pose miring
     assert not cal.done and cal.roll0 == 0.0
     cal.start()                             # hotkey c
     _feed(cal, 200, ts + 20000)
     assert cal.done
+
+
+def test_calibration_rejects_steady_closed_eyes():
+    # sim_P1c: percobaan ulang jatuh di skenario 5 (pejam 3 s, diam) -> dulu diterima, baseline = mata tertutup
+    cal = Calibration(CAL)
+    _feed(cal, 153, ear=0.09, blink=0.8)           # tepat satu percobaan (5 s): EAR rendah + blink tinggi
+    assert not cal.done and "tertutup" in cal.status
+    cal = Calibration(CAL)
+    _feed(cal, 160, ear=0.09)                      # model tanpa blendshape: cek EAR vs populasi
+    assert not cal.done
+    cal = Calibration(CAL)
+    _feed(cal, 200, ear=0.19, blink=0.2)           # mata sipit terbuka tetap diterima
+    assert cal.done and cal.ear_baseline == pytest.approx(0.19)
+
+
+def test_adaptive_baseline_learns_open_eye_ear_despite_closures():
+    # sim_P1b: peraga bermata sipit (EAR terbuka 0.18) memejam berulang sejak awal -> kalibrasi gagal 3x
+    cal = Calibration(CAL)
+    ts = 0
+    for _ in range(12):                                     # 12 siklus: terbuka 2 s, terpejam 3 s
+        ts = _feed(cal, 60, ts, ear=0.18)
+        ts = _feed(cal, 90, ts, ear=0.07, blink=0.9)
+    assert not cal.done and "populasi" in cal.status
+    assert cal.ear_baseline == pytest.approx(0.18)         # bukan 0.28 (populasi) dan bukan EAR terpejam
+    # hampir selalu terpejam: lantai populasi x rasio, tidak belajar mata tertutup
+    cal = Calibration(CAL)
+    _feed(cal, 2000, ear=0.07, blink=0.9)
+    assert cal.ear_baseline == pytest.approx(CAL["population_ear_baseline"] * CAL["min_ear_ratio_population"])
+    # menoleh (tidak frontal) tidak masuk perkiraan
+    cal = Calibration(CAL)
+    _feed(cal, 400, ear=0.40, yaw=35)
+    assert cal.ear_baseline == CAL["population_ear_baseline"]
 
 
 # ------------------------------------------------------------------ input YOLO = preprocessing training

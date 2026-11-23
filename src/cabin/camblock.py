@@ -45,6 +45,10 @@ class PartialBlock:
         self.min_base_lap = float(c.get("min_base_lap", 40.0))
         self.min_cells = int(c.get("min_cells", 4))
         self.frac_min = float(c.get("frac_min", 0.6))
+        # hysteresis: setelah tertutup, lepas hanya jika fraksi < frac_exit (null = tanpa hysteresis)
+        fe = c.get("frac_exit")
+        self.frac_exit = self.frac_min if fe is None else float(fe)
+        self._on = False
         self.alpha = float(c.get("baseline_alpha", 0.05))
         self.warmup = int(c.get("warmup_frames", 15))
         self.mean_min, self.mean_max = float(mean_min), float(mean_max)
@@ -77,10 +81,13 @@ class PartialBlock:
             self._base = lv.copy() if self._base is None else (1 - self.alpha) * self._base + self.alpha * lv
             self._n += 1
         if self._base is None or self._n < self.warmup:
+            self._on = False
             return False
         informative = self._base >= self.min_base_lap
         if informative.sum() < self.min_cells:
+            self._on = False
             return False
         covered = informative & ((lv <= self.drop_ratio * self._base) | (mn < self.mean_min) | (mn > self.mean_max))
         self.frac = float(covered.sum() / informative.sum())
-        return self.frac >= self.frac_min
+        self._on = self.frac >= (self.frac_exit if self._on else self.frac_min)
+        return self._on

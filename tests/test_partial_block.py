@@ -77,6 +77,20 @@ def test_baseline_not_updated_while_face_absent():
     assert pb.update(covered(0.75), face_present=False)            # baseline tidak "belajar" tangan
 
 
+def test_hysteresis_holds_through_threshold_chatter():
+    # uji_yawn 157-163 s: fraksi berayun di sekitar frac_min -> tanpa hysteresis status putus-sambung
+    pb = PartialBlock({**CFG, "frac_exit": 0.3})
+    warm(pb)
+    assert pb.update(covered(0.75), face_present=False)
+    assert pb.update(covered(0.5), face_present=False) and pb.frac < CFG["frac_min"]   # di bawah masuk, di atas keluar
+    assert not pb.update(covered(0.2), face_present=False)                            # tangan dilepas
+    assert not pb.update(covered(0.5), face_present=False)                            # masuk lagi butuh frac_min
+    no_h = PartialBlock(CFG)
+    warm(no_h)
+    no_h.update(covered(0.75), face_present=False)
+    assert not no_h.update(covered(0.5), face_present=False)
+
+
 def test_disabled():
     pb = PartialBlock({**CFG, "enabled": False})
     warm(pb)

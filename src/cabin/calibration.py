@@ -5,6 +5,8 @@ Kalibrasi ditolak (dan diulang) jika variansi terlalu tinggi.
 """
 from __future__ import annotations
 
+from collections import deque
+
 import numpy as np
 
 
@@ -26,15 +28,44 @@ class Calibration:
         self.attempts = 0
         self._t0: int | None = None
         self._buf: list[dict] = []
+        # baseline adaptif selama kalibrasi belum berhasil: persentil tinggi EAR wajah frontal (pejam = ekor bawah)
+        ad = cfg.get("adaptive_baseline") or {}
+        self.adaptive = bool(ad.get("enabled", False))
+        self._ad = ad
+        self._ad_buf: deque = deque()          # (ts_ms, ear)
+        self.adaptive_used = False
 
     def set_population(self):
         self.active = False
         self.done = False
-        self.ear_baseline = self.pop_ear
+        if not self.adaptive_used:            # baseline adaptif yang sudah terbentuk tetap dipakai
+            self.ear_baseline = self.pop_ear
         self.yaw0, self.pitch0, self.roll0 = self.mount
         self.status = "baseline populasi"
 
+    def _adapt(self, ts_ms: int, raw: dict) -> None:
+        """Tanpa kalibrasi yang berhasil, baseline populasi bisa jauh dari mata pengemudi (mata sipit / NIR:
+        sim_P1b terbuka = openness 0.55 -> mata setengah terbuka dianggap terpejam 11 s). Perkirakan EAR mata
+        terbuka dari persentil tinggi EAR saat wajah frontal; pejam (D-01/D-02) hanya mengisi ekor bawah."""
+        a = self._ad
+        my, mp, _ = self.mount
+        if (abs(raw["yaw"] - my) > a.get("max_abs_yaw_deg", 20)
+                or abs(raw["pitch"] - mp) > a.get("max_abs_pitch_deg", 20)):
+            return
+        self._ad_buf.append((ts_ms, (raw["ear_l"] + raw["ear_r"]) / 2))
+        win = float(a.get("window_s", 60)) * 1000
+        while self._ad_buf and self._ad_buf[0][0] < ts_ms - win:
+            self._ad_buf.popleft()
+        if self._ad_buf[-1][0] - self._ad_buf[0][0] < float(a.get("min_s", 5)) * 1000:
+            return
+        ear = float(np.percentile([e for _, e in self._ad_buf], a.get("percentile", 85)))
+        floor = self.pop_ear * float(self.c.get("min_ear_ratio_population", 0.5))
+        self.ear_baseline = max(ear, floor)
+        self.adaptive_used = True
+
     def observe(self, ts_ms: int, raw: dict) -> None:
+        if self.adaptive and not self.done:
+            self._adapt(ts_ms, raw)
         if not self.active:
             return
         if self._t0 is None:
@@ -75,6 +106,15 @@ class Calibration:
         roll = np.array([b["roll"] for b in buf])
         if ear.std() > self.c.get("max_ear_std", 0.04):
             self.status = f"kalibrasi ditolak: mata tidak stabil (std {ear.std():.3f}), ulangi"
+            self._maybe_give_up()
+            return
+        # Mata terpejam yang diam juga "stabil": tanpa cek ini baseline = EAR mata tertutup (mis. percobaan ulang
+        # jatuh tepat di skenario 5) -> openness ~4x, D-01/D-02 buta sampai kalibrasi berikutnya.
+        blink = np.array([b.get("blink", 0.0) for b in buf])
+        min_ratio = float(self.c.get("min_ear_ratio_population", 0.6))
+        if blink.mean() > self.c.get("max_blink_mean", 0.5) or np.median(ear) < self.pop_ear * min_ratio:
+            self.status = (f"kalibrasi ditolak: mata tampak tertutup (EAR {np.median(ear):.3f}, "
+                           f"blink {blink.mean():.2f}), ulangi")
             self._maybe_give_up()
             return
         max_pose = self.c.get("max_pose_std_deg", 5.0)
