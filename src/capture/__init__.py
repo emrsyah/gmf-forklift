@@ -83,8 +83,19 @@ class _LiveSource(FrameSource):
         self._i += 1
         return f
 
+    def clock_correction_ms(self) -> int:
+        """Jam dinding sekarang - jam sumber (`ts_ms`). ~0 kecuali jam sistem disetel setelah sumber dibuka
+        (mis. NTP sinkron belakangan di Jetson tanpa RTC). `ts_ms` frame sengaja tetap monotonic (indikator butuh
+        selisih waktu yang mulus); koreksi ini hanya untuk timestamp event yang dikirim (K5)."""
+        return epoch_correction_ms(self._t0_mono, self._t0_epoch_ms)
+
     def release(self) -> None:
         self.cap.release()
+
+
+def epoch_correction_ms(t0_mono: float, t0_epoch_ms: int) -> int:
+    now_src = t0_epoch_ms + (time.monotonic() - t0_mono) * 1000
+    return int(round(time.time() * 1000 - now_src))
 
 
 class WebcamSource(_LiveSource):

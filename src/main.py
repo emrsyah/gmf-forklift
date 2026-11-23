@@ -96,21 +96,27 @@ def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety A
             break
 
 
-def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None) -> list[dict]:
+EVENT_TS_KEYS = ("ts_event_ms", "ts_condition_start_ms")
+
+
+def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None, clock_corr_ms: int = 0) -> list[dict]:
     """Jalankan aksi keputusan satu frame. Buzzer DULU, baru event, supaya event `start` membawa
-    `ts_buzzer_ms` (waktu buzzer kabin benar-benar diperintahkan; bahan ukur K5 kabin)."""
+    `ts_buzzer_ms` (waktu buzzer kabin benar-benar diperintahkan; bahan ukur K5 kabin).
+    clock_corr_ms: jam dinding - jam sumber (lihat capture.clock_correction_ms); ditambahkan ke timestamp
+    event supaya sejalan dengan `ts_buzzer_ms` dan jam server walau jam sistem disetel setelah start."""
     clock = now_ms or (lambda: int(time.time() * 1000))
     buzz_ts: dict[str, int] = {}
     for act in actions:
         if act.kind == "buzz":
             alerter.buzz(act.payload["level"], act.payload["code"], act.payload["first"])
-            if act.payload["first"]:
+            if act.payload["first"] and getattr(alerter, "real", True):   # tanpa buzzer fisik: tidak dicatat
                 buzz_ts[act.payload["code"]] = clock()
     sent = []
     for act in actions:
         if act.kind != "event":
             continue
         ev = act.payload
+        # recorder dulu, dengan jam SUMBER: ring buffer klip ber-timestamp jam sumber
         if ev["phase"] == "start":
             if ev["code"] in buzz_ts:
                 ev["ts_buzzer_ms"] = buzz_ts[ev["code"]]
@@ -121,6 +127,11 @@ def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None) -> lis
                     print(f"[clips] snapshot/klip gagal untuk {ev['event_id']}: {e}", flush=True)
         elif ev["phase"] == "end" and recorder is not None:
             recorder.on_event_end(ev)
+        if clock_corr_ms:   # yang dikirim: jam dinding (sejalan dengan ts_buzzer_ms dan server)
+            for k in EVENT_TS_KEYS:
+                if ev.get(k) is not None:
+                    ev[k] = int(ev[k]) + int(clock_corr_ms)
+            ev["clock_correction_ms"] = int(clock_corr_ms)
         sinks.send(ev)
         sent.append(ev)
         print(f"[event] {ev['phase']:5s} {ev['code']} {ev['level']} id={ev['event_id']} "
@@ -256,6 +267,7 @@ def main(argv=None):
                              detector=f_det)
         holder["front"] = front
     t_log, n_log = time.monotonic(), 0
+    clock_corr_min_ms = float(rt.get("clock_correction_min_ms", 50))
     face_log: list = []
     if show and rt.get("ui", {}).get("fullscreen", False):
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
@@ -273,7 +285,12 @@ def main(argv=None):
                 if pipe.calibration.status != cal_status:   # log setiap perubahan status kalibrasi
                     cal_status = pipe.calibration.status
                     print(f"[kalibrasi] t={frame.video_t_s:.1f}s {cal_status}", flush=True)
-                handle_actions(st.actions, alerter, sinks, recorder, st.image)
+                corr = 0
+                if st.actions and hasattr(src, "clock_correction_ms"):   # live saja; replay file = 0
+                    corr = src.clock_correction_ms()
+                    if abs(corr) < clock_corr_min_ms:                    # hanya langkah jam nyata, bukan jitter
+                        corr = 0
+                handle_actions(st.actions, alerter, sinks, recorder, st.image, clock_corr_ms=corr)
                 now_ms = int(time.time() * 1000)
                 if hb.due(now_ms):
                     op = pipe.decision.open

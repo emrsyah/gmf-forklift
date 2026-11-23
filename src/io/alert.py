@@ -7,6 +7,9 @@ import time
 
 
 class Alerter:
+    # False = tidak ada buzzer fisik -> event tidak boleh membawa ts_buzzer_ms (angka K5 kabin palsu)
+    real: bool = True
+
     def buzz(self, level: str, code: str, first: bool) -> None:
         raise NotImplementedError
 
@@ -15,6 +18,8 @@ class Alerter:
 
 
 class NullAlerter(Alerter):
+    real = False
+
     def __init__(self):
         self.calls: list[tuple] = []
 
@@ -49,27 +54,44 @@ class LaptopBeeper(Alerter):
 
 
 class GpioBuzzer(Alerter):
-    """Fase 2 (Jetson): buzzer di pin GPIO lewat Jetson.GPIO."""
+    """Fase 2 (Jetson): buzzer aktif (atau relay) di pin GPIO lewat Jetson.GPIO.
+    Pola sama dengan beep laptop: A-03 pertama 2 pulsa, lainnya 1 pulsa (A-03 diulang tiap 1 s oleh decision).
+    `gpio_mode`: BOARD (nomor pin header 40-pin, paling aman di Orin) atau BCM. `active_low`: untuk modul relay
+    / buzzer yang menyala saat LOW."""
 
-    def __init__(self, pin: int, ms: int = 250):
-        import Jetson.GPIO as GPIO  # type: ignore
-
-        self.GPIO = GPIO
+    def __init__(self, pin: int, ms: int = 250, mode: str = "BOARD", active_low: bool = False,
+                 gap_ms: int = 120, gpio=None):
+        if gpio is None:
+            import Jetson.GPIO as gpio  # type: ignore
+        self.GPIO = gpio
         self.pin = int(pin)
         self.ms = int(ms)
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.pin, GPIO.OUT, initial=GPIO.LOW)
+        self.gap_ms = int(gap_ms)
+        self.on = gpio.LOW if active_low else gpio.HIGH
+        self.off = gpio.HIGH if active_low else gpio.LOW
+        gpio.setwarnings(False)
+        gpio.setmode(getattr(gpio, str(mode).upper()))
+        gpio.setup(self.pin, gpio.OUT, initial=self.off)
+        self._lock = threading.Lock()      # pulsa tidak saling tumpang (A-03 berulang + event baru)
 
-    def _pulse(self):
-        self.GPIO.output(self.pin, self.GPIO.HIGH)
-        time.sleep(self.ms / 1000)
-        self.GPIO.output(self.pin, self.GPIO.LOW)
+    def _pulse(self, n: int):
+        with self._lock:
+            for i in range(n):
+                self.GPIO.output(self.pin, self.on)
+                time.sleep(self.ms / 1000)
+                self.GPIO.output(self.pin, self.off)
+                if i < n - 1:
+                    time.sleep(self.gap_ms / 1000)
 
     def buzz(self, level, code, first):
-        threading.Thread(target=self._pulse, daemon=True).start()
+        n = 2 if (level == "A-03" and first) else 1
+        threading.Thread(target=self._pulse, args=(n,), daemon=True).start()
 
     def close(self):
-        self.GPIO.cleanup(self.pin)
+        try:
+            self.GPIO.output(self.pin, self.off)
+        finally:
+            self.GPIO.cleanup(self.pin)
 
 
 def make_alerter(cfg: dict) -> Alerter:
@@ -77,5 +99,10 @@ def make_alerter(cfg: dict) -> Alerter:
     if t == "laptop_beep":
         return LaptopBeeper(cfg.get("beep_freq_hz", 2000), cfg.get("beep_ms", 250))
     if t == "gpio":
-        return GpioBuzzer(cfg.get("gpio_pin", 18), cfg.get("beep_ms", 250))
+        try:
+            return GpioBuzzer(cfg.get("gpio_pin", 12), cfg.get("beep_ms", 250), cfg.get("gpio_mode", "BOARD"),
+                              bool(cfg.get("active_low", False)), cfg.get("gap_ms", 120))
+        except Exception as e:  # noqa: BLE001 - deteksi + event tetap jalan tanpa buzzer
+            print(f"[alert] BUZZER GPIO GAGAL ({type(e).__name__}: {e}) -> tanpa buzzer; event tanpa ts_buzzer_ms",
+                  flush=True)
     return NullAlerter()

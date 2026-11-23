@@ -155,6 +155,25 @@ def test_ts_buzzer_attached_to_start_event():
     assert sent[0]["ts_buzzer_ms"] == T + 7 and sink.events[0]["ts_buzzer_ms"] == T + 7
 
 
+def test_clock_correction_shifts_event_timestamps():
+    ev = {"event_id": "e8", "phase": "start", "code": "D02", "level": "A-03", "ts_event_ms": T,
+          "ts_condition_start_ms": T - 1500}
+    sent = handle_actions([Action("event", ev)], _Alerter(), MemorySink(), None, None, clock_corr_ms=3600_000)
+    assert sent[0]["ts_event_ms"] == T + 3600_000 and sent[0]["ts_condition_start_ms"] == T - 1500 + 3600_000
+    assert sent[0]["clock_correction_ms"] == 3600_000
+
+
+def test_live_source_clock_correction(monkeypatch):
+    import time as _t
+
+    from src.capture import epoch_correction_ms
+    mono0, epoch0 = _t.monotonic(), int(_t.time() * 1000)
+    assert abs(epoch_correction_ms(mono0, epoch0)) < 50              # jam tidak disetel -> ~0
+    real = _t.time
+    monkeypatch.setattr(_t, "time", lambda: real() + 120.0)        # NTP melompatkan jam 2 menit
+    assert abs(epoch_correction_ms(mono0, epoch0) - 120_000) < 50
+
+
 def test_heartbeat_interval_and_fields():
     hb = Heartbeat({"interval_s": 5, "clock_check_s": 60}, "dev", {"cabin": "v1"}, clock_fn=lambda: True, sync=True)
     assert hb.due(T)

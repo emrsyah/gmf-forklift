@@ -4,6 +4,9 @@
 device_id: laptop-dev
 event_id_prefix: laptop
 timezone_offset_h: 7        # WIB, untuk tanggal di event_id
+# Jam sistem disetel SETELAH kamera dibuka (Jetson tanpa RTC, NTP lewat 5G belakangan): timestamp event
+# dikoreksi dengan selisih jam dinding - jam sumber jika >= ini (ms). ts_ms frame tetap monotonic.
+clock_correction_min_ms: 50
 
 cabin:
   source:
@@ -120,8 +123,13 @@ camera_sim:
   phone_hfov_deg: null      # null = phone.hfov_deg di camera_profiles.yaml; CLI --phone-hfov menimpa
 
 alert:
-  type: laptop_beep         # laptop_beep | gpio | none
-  gpio_pin: 18
+  type: laptop_beep         # laptop_beep | gpio | none  (none = event tanpa ts_buzzer_ms)
+  # gpio: Jetson.GPIO. BOARD = nomor pin header 40-pin (pin 12 = GPIO18 di BCM). User harus di grup gpio.
+  # Uji wiring: python -m tools.jetson.buzzer_test --pin 12
+  gpio_mode: BOARD
+  gpio_pin: 12
+  active_low: false         # true untuk modul relay/buzzer yang menyala saat LOW
+  gap_ms: 120               # jeda antar pulsa (A-03 pertama = 2 pulsa)
   beep_freq_hz: 2000
   beep_ms: 250
 
