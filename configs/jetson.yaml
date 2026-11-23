@@ -37,6 +37,7 @@ runtime:
       crop:
         enabled: true
         lost_search_every: 3    # wajah hilang (menoleh, D-09, kursi kosong): cari tiap 3 frame (~100 ms)
+        pose_fallback: true     # yaw/roll dari YuNet saat landmark gagal (wajah kecil di tepi bawah)
     yolo:
       async: true               # loop wajah tidak menunggu YOLO (D-06/D-10 lambat, cukup ~10 Hz)
       async_max_fps: 10
@@ -57,6 +58,11 @@ runtime:
     # Uji 2026-11-22: 960 px ~10 GB/jam (malam, noise). Replay harus melihat gambar yang SAMA dengan live
     # (960x720, wajah kecil + crop wajah sensitif ukuran) -> 960, bukan 640. Berhenti sendiri jika disk < min_free_gb.
     max_side: 960
+  recording:
+    defer_event_start: true   # event langsung terkirim; snapshot/klip ditulis thread klip (K5)
+    # Ring buffer klip menggambar overlay + JPEG tiap frame yang disimpan, walau tanpa event (~6 ms/frame).
+    # 10 fps (bukan 15): CPU -1/3, klip tetap bisa diputar (K7).
+    fps: 10
   front:
     enabled: false          # pipeline depan terpisah tidak dipakai; deteksi jalan di front_preview.detect
     # YOLO11n COCO (person) TensorRT FP16, di-build DI Jetson ini (torch CUDA crash -> tensorrt_native):
@@ -93,6 +99,7 @@ runtime:
     detect:
       enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx
       fps: 10
+      decode_reduce: 2      # 720p -> 640x360 untuk YOLO (input 640); hemat ~8-10% satu core
     recording:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front

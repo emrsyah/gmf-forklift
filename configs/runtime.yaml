@@ -63,6 +63,14 @@ cabin:
       fallback_full: true       # detektor tidak menemukan wajah -> Face Landmarker di full frame (perilaku lama)
       lost_search_every: 1      # wajah hilang -> cari (YuNet + full frame) tiap N frame; 1 = tiap frame
       lost_search_after_s: 0.5  # ... hanya setelah hilang >= sekian detik (celah pendek tetap dicari tiap frame)
+      # Pose cadangan: landmark gagal tapi YuNet melihat wajah -> yaw/roll dari PnP 5 titik (+ selisih terhadap
+      # pose MediaPipe yang dipelajari). Mata/mulut/pitch tak terbaca. Untuk D-05 menoleh & D-04 kepala miring.
+      pose_fallback: false
+      pose_fallback_axes: [yaw, roll]     # pitch dari titik YuNet tidak andal (uji: r=0.38)
+      pose_fallback_min_samples: 30       # frame landmark yang dibutuhkan sebelum cadangan dipakai
+      pose_fallback_ema: 0.05
+      pose_fallback_focal_scale: 1.0      # f = skala x sisi terpanjang gambar
+      pose_fallback_max_offset_deg: 25
   yolo:
     enabled: true
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)
@@ -217,6 +225,9 @@ recording:
   # tidak turun tajam setelah alarm (Orin Nano: x264 software, tanpa encoder hardware)
   x264_args: [-crf, "26", -maxrate, 1500k, -bufsize, 3000k, -threads, "2"]
   encoder_nice: 10          # Linux: encoder klip kalah prioritas dari loop deteksi (K5)
+  # Event dikirim tanpa menunggu antrean JPEG dikuras + snapshot ditulis (hemat 5..180 ms di jalur alert).
+  # Snapshot/klip tetap identik (penanda event diantre bersama frame). snapshot_before_condition = null.
+  defer_event_start: false
 
 # Batas thread pustaka numerik (src/perf.py). null = bawaan pustaka (tiap pustaka ~1 thread per core).
 # Di Jetson, thread pekerja OpenBLAS/OpenMP/OpenCV ikut berputar saat menunggu; ukur CPU+FPS dulu sebelum diisi.
@@ -261,6 +272,9 @@ front_preview:
     enabled: false
     fps: 10                 # batas atas inferensi depan; frame kamera di antaranya dilewati
     log_every_s: 5          # baris "[fps-depan] N FPS" di log (dibaca agent MINERVA -> fpsForward)
+    # JPEG kamera didekode di 1/N ukuran untuk deteksi (720p -> 640x360 pada 2): ~3-4x lebih murah.
+    # Gambar kanal web "front" ikut 1/N; jarak tetap benar (intrinsik diskalakan).
+    decode_reduce: 1
   recording:
     enabled: false
     dir: recordings/front

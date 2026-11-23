@@ -23,6 +23,8 @@ import numpy as np
 
 from src.config import resolve_path
 
+_START, _END = "__event_start__", "__event_end__"   # penanda di antrean encode (defer_event_start)
+
 
 def stamp(img: np.ndarray, ts_ms: int, label: str) -> np.ndarray:
     out = img.copy()
@@ -78,6 +80,7 @@ class ClipRecorder:
         # Stempel + resize + JPEG (~6 ms/frame di Jetson) di thread sendiri, bukan di loop deteksi.
         # Antrean dikuras (join) saat event start/end dan flush, jadi isi klip sama dengan mode sinkron.
         self._lock = threading.RLock()
+        self.defer_start = bool(cfg.get("defer_event_start", False))
         self._q: queue.Queue | None = None
         if cfg.get("async_encode", True):
             self._q = queue.Queue(maxsize=int(cfg.get("encode_queue", 30)))
@@ -110,9 +113,14 @@ class ClipRecorder:
 
     def _encode_loop(self):
         while True:
-            ts_ms, img, label = self._q.get()
+            a, b, c = self._q.get()
             try:
-                self._add(ts_ms, img, label)
+                if a == _START:                # penanda event (mode defer_event_start), urut dengan frame
+                    self._start_now(b, c)
+                elif a == _END:
+                    self._end_now(b)
+                else:
+                    self._add(a, b, c)
             except Exception as e:  # jangan pernah mematikan thread klip
                 print(f"[clips] encode gagal: {e}", flush=True)
             finally:
@@ -160,10 +168,22 @@ class ClipRecorder:
         return best
 
     def on_event_start(self, event: dict, img: np.ndarray) -> dict:
-        """Simpan snapshot sekarang, jadwalkan klip. Mengembalikan path relatif untuk event JSON."""
+        """Simpan snapshot sekarang, jadwalkan klip. Mengembalikan path relatif untuk event JSON.
+        defer_event_start (butuh async_encode): tidak menunggu antrean JPEG dikuras dan tidak menulis snapshot di
+        loop deteksi -> event langsung terkirim (K5). Penanda masuk antrean yang sama dengan frame, jadi isi
+        klip/snapshot sama dengan mode sinkron; path sudah pasti (paths_for). snapshot_before_condition = None
+        (belum diketahui saat event dikirim)."""
+        if self.defer_start and self._q is not None:
+            snap, clip = self.paths_for(event)
+            self._q.put((_START, dict(event), img.copy()))
+            return {"snapshot_path": self._rel(snap), "clip_path": self._rel(clip),
+                    "snapshot_before_condition": None}
+        self._drain()
+        return self._start_now(event, img)
+
+    def _start_now(self, event: dict, img: np.ndarray) -> dict:
         snap, clip = self.paths_for(event)
         label = f"{event['code']} {event['level']}"
-        self._drain()
         with self._lock:
             pre = self._pre_condition_jpg(event) if event.get("code") in self.pre_snap_codes else None
             frames = [f for f in self.buf if f[0] >= event["ts_event_ms"] - self.pre_ms]
@@ -189,6 +209,12 @@ class ClipRecorder:
         """Mode clip_until=end: klip berhenti post_end_s setelah kondisi selesai (tetap <= max_s)."""
         if self.until != "end":
             return
+        if self.defer_start and self._q is not None:   # urut sesudah penanda start yang mungkin masih antre
+            self._q.put((_END, dict(event), None))
+            return
+        self._end_now(event)
+
+    def _end_now(self, event: dict) -> None:
         with self._lock:
             for p in self.pending:
                 if p.event.get("event_id") == event.get("event_id"):

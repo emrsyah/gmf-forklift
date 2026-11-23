@@ -26,6 +26,8 @@ class FaceObs:
     yaw_raw: float = 0.0                        # derajat, sebelum dikurangi baseline kalibrasi
     pitch_raw: float = 0.0
     roll_raw: float = 0.0
+    # True = hanya pose kepala (cadangan PnP dari 5 titik detektor saat landmark gagal); mata/mulut tak terbaca
+    pose_only: bool = False
 
 
 def pose_from_matrix(m: np.ndarray) -> tuple[float, float, float]:

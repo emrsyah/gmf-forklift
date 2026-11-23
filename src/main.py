@@ -258,7 +258,7 @@ def main(argv=None):
             try:
                 f_det = FrontDetectWorker(FrontPipeline.from_config(cfg), det_cfg.get("fps", 10),
                                           int(fp_cfg.get("rotate", 0)), web,
-                                          det_cfg.get("log_every_s", 5))
+                                          det_cfg.get("log_every_s", 5), det_cfg.get("decode_reduce", 1))
                 print(f"[depan] deteksi aktif: {rt['front']['yolo']['weights']} @ <= {det_cfg.get('fps', 10)} fps",
                       flush=True)
             except Exception as e:           # model tidak ada / gagal dimuat: pratinjau tetap jalan

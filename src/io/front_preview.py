@@ -41,9 +41,13 @@ class FrontDetectWorker:
     H.264 tidak pernah menunggu model. Hasil digambar dan dikirim ke kanal web "front".
     """
 
-    def __init__(self, pipe, fps: float, rotate_deg: int = 0, web=None, log_every_s: float = 5.0):
+    def __init__(self, pipe, fps: float, rotate_deg: int = 0, web=None, log_every_s: float = 5.0,
+                 decode_reduce: int = 1):
         self.pipe = pipe
         self.period_s = 1.0 / max(float(fps), 0.1)
+        # JPEG didekode di 1/N ukuran (YOLO memakai input 640 -> 720p penuh tidak perlu). Jarak tetap benar:
+        # DistanceEstimator menskalakan intrinsik ke ukuran gambar.
+        self.decode_reduce = int(decode_reduce)
         self.rotate = rotate_deg
         self.web = web
         self.log_every_s = float(log_every_s)
@@ -84,7 +88,7 @@ class FrontDetectWorker:
                 continue
             t_next = time.monotonic() + self.period_s
             try:
-                img = decode_frame(fr)
+                img = decode_frame(fr, self.decode_reduce)
                 if img is None:
                     continue
                 img = rotate(img, self.rotate)

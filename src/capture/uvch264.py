@@ -128,15 +128,23 @@ def find_xu_unit(descriptors: bytes, guid: uuid.UUID = UVCX_GUID) -> Optional[in
     return None
 
 
-def decode_jpeg(jpeg: bytes | None) -> Optional[np.ndarray]:
+_REDUCED = {1: cv2.IMREAD_COLOR, 2: cv2.IMREAD_REDUCED_COLOR_2, 4: cv2.IMREAD_REDUCED_COLOR_4,
+            8: cv2.IMREAD_REDUCED_COLOR_8}
+
+
+def decode_jpeg(jpeg: bytes | None, reduce: int = 1) -> Optional[np.ndarray]:
+    """reduce 2/4/8: libjpeg mendekode langsung di 1/2, 1/4, 1/8 ukuran (DCT scaling) -> beberapa kali lebih murah
+    daripada dekode penuh lalu resize."""
     if not jpeg:
         return None
-    return cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    return cv2.imdecode(np.frombuffer(jpeg, np.uint8), _REDUCED.get(int(reduce), cv2.IMREAD_COLOR))
 
 
-def decode_frame(frame: Frame) -> Optional[np.ndarray]:
+def decode_frame(frame: Frame, reduce: int = 1) -> Optional[np.ndarray]:
     """Gambar BGR sebuah frame: `image` kalau sudah ada, kalau tidak dekode `meta["jpeg"]` (decode: false)."""
-    return frame.image if frame.image is not None else decode_jpeg(frame.meta.get("jpeg"))
+    if frame.image is not None:
+        return frame.image
+    return decode_jpeg(frame.meta.get("jpeg"), reduce)
 
 
 # ------------------------------------------------------------------------------------------- kontrol (Linux)

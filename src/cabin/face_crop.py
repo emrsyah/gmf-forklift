@@ -50,8 +50,93 @@ class YuNetDetector:
         out = []
         for f in faces if faces is not None else []:
             x, y, bw, bh, score = float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[-1])
-            out.append((x / s, y / s, (x + bw) / s, (y + bh) / s, score))
+            pts = np.asarray(f[4:14], dtype=np.float64).reshape(5, 2) / s   # mata x2, hidung, sudut mulut x2
+            out.append((x / s, y / s, (x + bw) / s, (y + bh) / s, score, pts))
         return out
+
+
+# ---------------------------------------------------------------- pose cadangan (PnP 5 titik)
+# Model wajah generik (mm), sumbu kamera OpenCV (x kanan, y bawah, z menjauhi kamera), hidung di origin.
+# Urutan: mata kiri-gambar, mata kanan-gambar, ujung hidung, sudut mulut kiri-gambar, kanan-gambar.
+_FACE5_3D = np.array([[-32.0, -35.0, 30.0], [32.0, -35.0, 30.0], [0.0, 0.0, 0.0],
+                      [-25.0, 30.0, 25.0], [25.0, 30.0, 25.0]], dtype=np.float64)
+_LM_EYE_L = [33, 160, 158, 133, 153, 144]     # sama dengan signals.LEFT_EYE (mata kiri-gambar)
+_LM_EYE_R = [362, 385, 387, 263, 373, 380]
+_LM_NOSE, _LM_MOUTH_L, _LM_MOUTH_R = 1, 61, 291
+
+
+def five_from_landmarks(lm: np.ndarray) -> np.ndarray:
+    """5 titik ala YuNet dari 478 landmark MediaPipe (untuk mempelajari selisih PnP vs pose MediaPipe)."""
+    return np.array([lm[_LM_EYE_L].mean(axis=0), lm[_LM_EYE_R].mean(axis=0), lm[_LM_NOSE],
+                     lm[_LM_MOUTH_L], lm[_LM_MOUTH_R]], dtype=np.float64)
+
+
+def pose_from_5pts(pts: np.ndarray, img_wh: tuple[int, int], focal_scale: float = 1.0):
+    """(yaw, pitch, roll) derajat dengan konvensi pose_from_matrix (yaw>0 hidung ke kanan gambar, pitch<0
+    menunduk), atau None. Intrinsik kira-kira: f = focal_scale x max(w, h), pusat optik = pusat gambar."""
+    p = np.asarray(pts, dtype=np.float64).reshape(5, 2).copy()
+    if p[0, 0] > p[1, 0]:                     # urutkan mata & mulut kiri->kanan gambar
+        p[[0, 1]] = p[[1, 0]]
+    if p[3, 0] > p[4, 0]:
+        p[[3, 4]] = p[[4, 3]]
+    w, h = img_wh
+    f = focal_scale * max(w, h)
+    k = np.array([[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1]], dtype=np.float64)
+    try:
+        ok, rvec, _ = cv2.solvePnP(_FACE5_3D, p, k, None, flags=cv2.SOLVEPNP_SQPNP)
+    except cv2.error:
+        return None
+    if not ok:
+        return None
+    r, _ = cv2.Rodrigues(rvec)
+    fwd = r @ np.array([0.0, 0.0, -1.0])      # keluar dari hidung, ke arah kamera saat menghadap lurus
+    up = r @ np.array([0.0, -1.0, 0.0])       # atas kepala
+    yaw = np.degrees(np.arctan2(fwd[0], -fwd[2]))
+    pitch = np.degrees(np.arctan2(-fwd[1], np.hypot(fwd[0], fwd[2])))
+    roll = np.degrees(np.arctan2(-up[0], -up[1]))
+    return float(yaw), float(pitch), float(roll)
+
+
+class PoseFallback:
+    """Pose dari 5 titik detektor saat Face Landmarker gagal. Model 3D generik + intrinsik kira-kira memberi
+    bias, jadi selisih (pose MediaPipe - PnP pada 5 titik landmark yang sama) dipelajari terus (EMA) dari
+    frame yang landmark-nya ada; pose cadangan = PnP + selisih itu (skala sama dengan kalibrasi)."""
+
+    def __init__(self, cfg: dict):
+        self.enabled = bool(cfg.get("pose_fallback", False))
+        self.focal_scale = float(cfg.get("pose_fallback_focal_scale", 1.0))
+        self.alpha = float(cfg.get("pose_fallback_ema", 0.05))
+        self.min_samples = int(cfg.get("pose_fallback_min_samples", 30))
+        self.max_abs_offset = float(cfg.get("pose_fallback_max_offset_deg", 25.0))
+        # Uji sim_P1c (1002 frame): PnP dari titik YuNet vs pose MediaPipe -> yaw r=0.95, roll r=0.77,
+        # pitch r=0.38 (p95 16 deg). Sumbu yang tidak dipercaya = NaN (indikator membacanya sebagai "tak terbaca").
+        self.axes = set(cfg.get("pose_fallback_axes", ["yaw", "roll"]))
+        self.offset = np.zeros(3)
+        self.samples = 0
+
+    def learn(self, obs: FaceObs, offset, img_wh) -> None:
+        if not self.enabled or obs.landmarks_px is None:
+            return
+        p = pose_from_5pts(five_from_landmarks(obs.landmarks_px - np.asarray(offset, dtype=np.float32)), img_wh,
+                           self.focal_scale)
+        if p is None:
+            return
+        d = np.array([obs.yaw_raw, obs.pitch_raw, obs.roll_raw]) - np.array(p)
+        if np.any(np.abs(d) > self.max_abs_offset):      # PnP gagal/terbalik: jangan dipelajari
+            return
+        self.offset = d if self.samples == 0 else (1 - self.alpha) * self.offset + self.alpha * d
+        self.samples += 1
+
+    def ready(self) -> bool:
+        return self.enabled and self.samples >= self.min_samples
+
+    def estimate(self, pts, img_wh, score: float) -> FaceObs | None:
+        p = pose_from_5pts(pts, img_wh, self.focal_scale)
+        if p is None:
+            return None
+        y, pi, r = (float(v) if n in self.axes else float("nan")
+                    for n, v in zip(("yaw", "pitch", "roll"), np.array(p) + self.offset))
+        return FaceObs(present=True, score=float(score), yaw_raw=y, pitch_raw=pi, roll_raw=r, pose_only=True)
 
 
 def make_face_detector(cfg: dict):
@@ -105,8 +190,9 @@ class CropFace:
         self._track_box = None              # kotak landmark terakhir (koordinat gambar input)
         self._n = 0
         self._lost_n = 0                    # frame berturut-turut tanpa wajah
-        self.last_source = "none"           # track | detector | full | none (diagnosis/overlay)
+        self.last_source = "none"           # track | detector | full | pose | none (diagnosis/overlay)
         self.last_crop_box = None           # (x1, y1, x2, y2) crop terakhir, koordinat gambar input
+        self.pose_fb = PoseFallback(cfg)
 
     def _target_box(self, img):
         self._n += 1
@@ -148,6 +234,7 @@ class CropFace:
         return obs
 
     def _process(self, image_bgr: np.ndarray, ts_ms: int, offset: tuple[int, int]) -> FaceObs:
+        wh = (image_bgr.shape[1], image_bgr.shape[0])
         box, src = self._target_box(image_bgr)
         if box is None:
             self._crop = None
@@ -157,6 +244,7 @@ class CropFace:
                 self.last_source = "full" if obs.present else "none"
                 if obs.present:
                     self._track_box = self._lm_box(obs.landmarks_px, offset)
+                    self.pose_fb.learn(obs, offset, wh)
                 return obs
             self.last_source = "none"
             return FaceObs(present=False)
@@ -172,14 +260,34 @@ class CropFace:
                 if full.present:
                     self._track_box = self._lm_box(full.landmarks_px, offset)
                     self.last_source = "full"
+                    self.pose_fb.learn(full, offset, wh)
                     return full
+            pose = self._pose_fallback(image_bgr, box, src, wh)
+            if pose is not None:
+                self.last_source = "pose"
+                return pose
             self.last_source = "none"
             return obs
         k = side / self.out_px
         obs.landmarks_px = obs.landmarks_px * k + np.array([x0 + offset[0], y0 + offset[1]], dtype=np.float32)
         self._track_box = self._lm_box(obs.landmarks_px, offset)
         self.last_source = src
+        self.pose_fb.learn(obs, offset, wh)
         return obs
+
+    def _pose_fallback(self, img, box, src, wh) -> FaceObs | None:
+        """Landmark gagal (crop + full): pose kepala dari 5 titik detektor, jika detektor melihat wajah."""
+        if not self.pose_fb.ready():
+            return None
+        if src == "track":                    # kotak dari landmark lama: tidak ada titik -> deteksi sekarang
+            faces = [f for f in self.det.detect(img)
+                     if len(f) > 5 and max(f[2] - f[0], f[3] - f[1]) >= self.min_face_px]
+            if not faces:
+                return None
+            box = max(faces, key=lambda f: f[4] * (f[2] - f[0]) * (f[3] - f[1]))
+        if len(box) <= 5 or box[5] is None:
+            return None
+        return self.pose_fb.estimate(box[5], wh, box[4])
 
     @staticmethod
     def _lm_box(xy: np.ndarray, offset) -> tuple[float, float, float, float, float]:

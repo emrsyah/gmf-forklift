@@ -43,6 +43,7 @@ class FaceSignals:
     # jika tidak -> mouth aspect ratio dari landmark / signals.mouth_mar_full. None = tidak terbaca.
     yawn_open: float | None = None
     calibrated: bool = False
+    pose_only: bool = False       # pose dari cadangan PnP (landmark gagal): mata/mulut tidak terbaca
 
 
 def eye_aspect_ratio(pts: np.ndarray) -> float:
@@ -119,6 +120,19 @@ class SignalExtractor:
         }
 
     def update(self, obs: FaceObs, ts_ms: int) -> FaceSignals:
+        if obs.present and obs.pose_only:
+            # hanya pose (D-04/D-05 tetap jalan); mata tak terbaca -> D-01/D-02 memperlakukannya sebagai celah.
+            # Tidak masuk kalibrasi (butuh EAR). Median filter pose tetap bersambung.
+            # sumbu tak terbaca = NaN: tidak masuk median filter, perbandingan ambang di indikator selalu False
+            def axis(k, v, base):
+                return float("nan") if v != v else self._med[k](v) - base
+            yaw = axis("yaw", obs.yaw_raw, self.cal.yaw0)
+            pitch = axis("pitch", obs.pitch_raw, self.cal.pitch0)
+            roll = axis("roll", obs.roll_raw, self.cal.roll0)
+            self._closed = False
+            return FaceSignals(ts_ms=ts_ms, face_present=True, eye_valid=False, eye_closed=False,
+                               eye_closed_strict=False, yaw=yaw, pitch=pitch, roll=roll, yawn_open=None,
+                               calibrated=self.cal.done, pose_only=True)
         if not obs.present or obs.landmarks_px is None:
             for m in self._med.values():
                 m.reset()

@@ -369,7 +369,16 @@ class D05Distraction(Indicator):
 
     def _classify(self, s: FaceSignals, blocked_frame: bool) -> tuple[bool, bool, bool]:
         """(off_mentah untuk akumulasi, off_dengan_hysteresis untuk run kontinu, karena_pitch_saja)"""
-        if not s.face_present:
+        if s.face_present and s.pose_only and s.pitch != s.pitch:
+            # pose cadangan tanpa pitch (landmark gagal): yaw tetap dipercaya. Menoleh -> off-road dari yaw;
+            # selain itu pitch tidak diketahui -> perlakukan seperti wajah hilang (tahan status terakhir,
+            # mis. menunduk ke pangkuan, skenario 9). _last_face_ms tidak diperbarui.
+            hyst_deg = self.c.get("hysteresis_deg", 0.0) if self._was_off else 0.0
+            if abs(s.yaw) > self.c.get("yaw_deg", 30) - hyst_deg:
+                self._last_face_ms = self._now_ms
+                self._last_off = (True, False)
+                return abs(s.yaw) > self.c.get("yaw_deg", 30), True, False
+        if not s.face_present or (s.pose_only and s.pitch != s.pitch):
             # wajah hilang tepat setelah menoleh/menunduk jauh (mis. lihat pangkuan dalam-dalam):
             # status off-road terakhir dipertahankan sebentar. Tidak berlaku saat kamera terhalang (D-09).
             hold = self.c.get("face_lost_offroad_hold_s")
