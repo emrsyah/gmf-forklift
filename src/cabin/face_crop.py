@@ -136,7 +136,8 @@ class PoseFallback:
             return None
         y, pi, r = (float(v) if n in self.axes else float("nan")
                     for n, v in zip(("yaw", "pitch", "roll"), np.array(p) + self.offset))
-        return FaceObs(present=True, score=float(score), yaw_raw=y, pitch_raw=pi, roll_raw=r, pose_only=True)
+        return FaceObs(present=True, score=float(score), yaw_raw=y, pitch_raw=pi, roll_raw=r, pose_only=True,
+                       eye_pts=np.asarray(pts, np.float32).reshape(-1, 2)[:2].copy())
 
 
 def make_face_detector(cfg: dict):

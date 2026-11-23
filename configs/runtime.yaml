@@ -88,6 +88,14 @@ cabin:
     async_max_fps: 5        # batas laju YOLO di mode async (0 = secepat mungkin); every_n_frames diabaikan
     class_names: [phone, helmet, head_no_helmet, vest, torso]
     providers: [CPUExecutionProvider]
+  # A7 (D-06): YOLO11n-pose (Ultralytics, AGPL-3.0) -> pergelangan tangan pengemudi. Hanya dimuat jika
+  # thresholds D06_phone.wrist_crop.enabled. Export: YOLO('data/weights/yolo11n-pose.pt').export(format='onnx').
+  # Jetson: trtexec --onnx=models/weights/yolo11n-pose.onnx --fp16 + tools.wrap_trt_engine -> .engine.
+  pose:
+    backend: onnxruntime    # onnxruntime | tensorrt_native
+    weights: models/weights/yolo11n-pose.onnx
+    imgsz: 640
+    providers: [CPUExecutionProvider]
 
 front:
   enabled: false

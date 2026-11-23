@@ -129,6 +129,17 @@ class SignalExtractor:
             yaw = axis("yaw", obs.yaw_raw, self.cal.yaw0)
             pitch = axis("pitch", obs.pitch_raw, self.cal.pitch0)
             roll = axis("roll", obs.roll_raw, self.cal.roll0)
+            p = obs.eye_closed_p
+            ec = self.c.get("eye_classifier") or {}
+            if p is not None and not (abs(yaw) > ec.get("yaw_max_deg", 30.0)):
+                # A9: keadaan mata dari classifier potongan mata (titik mata detektor), dengan hysteresis.
+                # Tanpa pitch (PnP 5 titik tak andal) -> menunduk ke pangkuan tidak bisa dikecualikan di sini.
+                thr = ec.get("exit_p", 0.4) if self._closed else ec.get("enter_p", 0.6)
+                self._closed = p >= thr
+                strict = p >= ec.get("enter_p", 0.6)
+                return FaceSignals(ts_ms=ts_ms, face_present=True, eye_valid=True, eye_closed=self._closed,
+                                   eye_closed_strict=strict, openness=1.0 - p, yaw=yaw, pitch=pitch, roll=roll,
+                                   yawn_open=None, calibrated=self.cal.done, pose_only=True)
             self._closed = False
             return FaceSignals(ts_ms=ts_ms, face_present=True, eye_valid=False, eye_closed=False,
                                eye_closed_strict=False, yaw=yaw, pitch=pitch, roll=roll, yawn_open=None,

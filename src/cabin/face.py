@@ -28,6 +28,9 @@ class FaceObs:
     roll_raw: float = 0.0
     # True = hanya pose kepala (cadangan PnP dari 5 titik detektor saat landmark gagal); mata/mulut tak terbaca
     pose_only: bool = False
+    # pose_only: titik tengah mata kanan & kiri dari detektor (2x2 piksel), untuk classifier mata (A9)
+    eye_pts: np.ndarray | None = None
+    eye_closed_p: float | None = None           # P(mata tertutup) dari classifier (A9); None = tidak dihitung
 
 
 def pose_from_matrix(m: np.ndarray) -> tuple[float, float, float]:

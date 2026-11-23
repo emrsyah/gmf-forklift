@@ -16,6 +16,7 @@ Semua sumber bisa diunduh **tanpa token** (diuji 2026-11-14 dengan `--limit 60`)
 | `coco_phone` | label: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip ; gambar: http://images.cocodataset.org/ | 4.395 gambar dengan `cell phone` (setelah filter luas kotak >= 0,05%) | Anotasi COCO: CC BY 4.0. Gambar: lisensi Flickr per gambar (sebagian CC BY-NC / CC BY-NC-SA) | COCO 2017 (cocodataset.org/#termsofuse) | Ya (terms of use COCO) — **sebagian gambar non-komersial** | ya |
 | `coco_lookalike` (cabin_v2) | label: coco2017labels.zip Ultralytics ; gambar: http://images.cocodataset.org/ | maks 3.000 (orang + remote/mouse/buku/cangkir/botol/gunting/sikat gigi, tanpa cell phone) | Anotasi COCO: CC BY 4.0. Gambar: lisensi Flickr per gambar (sebagian NC) | COCO 2017 | Ya (terms of use COCO) — **sebagian gambar non-komersial** | ya (negatif keras phone) |
 | `openimages_phone` (cabin_v2) | anotasi: https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv ; gambar: bucket S3 publik `open-images-dataset` | maks 6.000 (Mobile phone dipegang/dekat wajah) | Anotasi: CC BY 4.0 (Google LLC). Gambar: "listed as having a CC BY 2.0 license" | Open Images V7 (storage.googleapis.com/openimages/web/factsfigures_v7.html) | Ya (dicek 2026-11-16 di halaman resmi; Google tidak menjamin lisensi per gambar) — atribusi per gambar di `data/raw/openimages_phone/attribution.csv` | ya |
+| `mrl_eye` (A9, `training/train_eye_cls.py`) | http://mrl.cs.vsb.cz/data/eyedataset/mrlEyes_2018_01.zip (halaman: https://mrl.cs.vsb.cz/eyedataset.html) | 84.898 potongan mata inframerah, 37 orang, label terbuka/tertutup di nama file | **Tidak dinyatakan** ("publically available"; sitasi: Fusek, ISVC 2018) | MRL, VSB Ostrava | Ya (dicek 2026-11-24: halaman resmi tidak menyebut lisensi) | ya, **hanya PoC internal**; sebelum produk minta izin tertulis MRL atau ganti data |
 | `cellphone_mahek` | https://huggingface.co/datasets/MahekDharod/cellphone-detection-dataset | 57 | MIT (kartu HF) | tidak diketahui (foto WhatsApp/IMG) | Tidak | **tidak** (label tidak pas pada cek visual; `enabled: false`) |
 | `roboflow_example` | Roboflow Universe (isi sendiri) | — | tergantung proyek | — | — | hanya jika `ROBOFLOW_API_KEY` ada |
 
@@ -29,7 +30,9 @@ Catatan:
 | Bobot | Dipakai untuk | Lisensi |
 |---|---|---|
 | `yolo11n.pt` (Ultralytics) | bobot awal training | AGPL-3.0 (atau Ultralytics Enterprise License) |
-| `yolo11n-pose.pt` (Ultralytics) | pose-fill: torso dari bahu-pinggul, kepala dari keypoint wajah | AGPL-3.0 |
+| `yolo11n-pose.pt` (Ultralytics) | pose-fill: torso dari bahu-pinggul, kepala dari keypoint wajah; runtime A7 (`yolo11n-pose.onnx`, potongan ponsel di sekitar pergelangan tangan) | AGPL-3.0 |
+| `ppe_head.onnx`, `ppe_torso.onnx` (A8) | classifier helm/rompi, dilatih dari nol (tanpa bobot pretrained) dari `ppe_jhboyo`, `ppe_vincent` (unduhan penuh 2026-11-24 di `data/raw_full`), `construction_keremberke` | turunan lisensi dataset di atas |
+| `eye_cls.onnx` (A9) | classifier mata, dilatih dari nol dari `mrl_eye` | turunan `mrl_eye` (tanpa lisensi eksplisit -> PoC internal) |
 | `yolov8s-worldv2.pt` + CLIP ViT-B/32 | `autolabel.py` (opsional) | AGPL-3.0 (Ultralytics), MIT (CLIP) |
 
 ## Implikasi

@@ -21,6 +21,19 @@ signals:
   # mata dianggap tidak bisa dibaca jika kepala menunduk terlalu dalam / menoleh terlalu jauh.
   eye_valid_pitch_down_max_deg: 25   # pitch < -25 -> eye_valid False (lihat catatan skenario 7 vs 9)
   eye_valid_yaw_max_deg: 45
+  # A9 (src/cabin/eye_cls.py): keadaan mata dari classifier potongan mata (MRL Eye, inframerah) HANYA pada frame
+  # cadangan pose (landmark gagal, wajah kecil). Tanpa pitch -> menunduk ke pangkuan (skenario 9) berisiko
+  # terbaca tertutup: nyalakan hanya setelah diuji di rekaman gladi Jetson.
+  eye_classifier:
+    enabled: false
+    weights: models/weights/eye_cls.onnx
+    input_px: 32
+    side_d: 0.7                 # sisi potongan = 0,7 x jarak antar mata
+    min_eye_dist_px: 12
+    min_inside: 0.8
+    enter_p: 0.6                # P(tertutup) >= ini -> tertutup
+    exit_p: 0.4                 # sudah tertutup: tetap tertutup selama P >= ini
+    yaw_max_deg: 30.0           # menoleh lebih jauh -> mata tidak dinilai
 
 calibration:
   duration_s: 5.0
@@ -209,6 +222,21 @@ D06_phone:
     face_memory_s: 5.0          # wajah hilang (menunduk ke ponsel) -> pakai kotak wajah terakhir
     merge_iou: 0.5              # duplikat frame penuh vs potongan -> simpan conf tertinggi
     classes: [phone]
+  # A7 (src/cabin/wrist_crop.py): potongan persegi di sekitar pergelangan tangan pengemudi (YOLO11n-pose,
+  # runtime cabin.pose) -> detektor kabin yang sama, hanya kelas phone. Pose tidak pernah memicu D-06 sendiri.
+  # Biaya per run YOLO: 1 pose + maks. 2 inferensi potongan.
+  wrist_crop:
+    enabled: false
+    pose_conf: 0.3              # conf kotak orang
+    kp_conf: 0.5                # conf keypoint pergelangan/siku/bahu
+    side_u: 2.0                 # sisi potongan (u = sisi wajah; tanpa wajah dari lebar bahu)
+    ahead: 0.35                 # pusat digeser ke arah tangan: + ahead x (pergelangan - siku)
+    shoulder_to_u: 0.5
+    box_w_to_u: 0.25
+    min_side_px: 64
+    max_crops: 2
+    merge_iou: 0.5
+    classes: [phone]
 
 D09_camera_block:
   # Spec awal std 10 / lap 20. Rekaman webcam 2026-11-14: telapak tangan dengan cahaya bocor di tepi
@@ -255,6 +283,22 @@ D10_ppe:
   driver_torso_x_margin: 0.25        # pusat wajah dalam rentang x torso (+-25% lebar)
   # `helmet` dan `head_no_helmet` di kepala yang sama (IoU >= ini): yang skornya lebih tinggi menang
   helmet_conflict_iou: 0.3
+  # A8 (src/cabin/ppe_cls.py): classifier helm/rompi pada potongan kepala/dada dari kotak wajah pengemudi.
+  # Bobot: training/train_ppe_cls.py (data publik). Ambang no_*_thr = ambang val di report.json training.
+  # mode: replace = classifier menggantikan aturan YOLO (bagian tak terlihat = bukan pelanggaran)
+  #       and = keduanya harus setuju (alarm palsu lebih sedikit) | or = salah satu cukup (recall lebih tinggi)
+  classifier:
+    enabled: false
+    head_weights: models/weights/ppe_head.onnx
+    torso_weights: models/weights/ppe_torso.onnx
+    input_px: 96
+    no_helmet_thr: 0.5
+    no_vest_thr: 0.5
+    min_face_u_px: 40           # wajah lebih kecil -> potongan terlalu kabur, tidak dinilai
+    torso_min_inside: 0.6       # >= 60% potongan dada di dalam gambar, jika tidak rompi tidak dinilai
+    mode: replace
+    head_geom: {dy_u: -0.30, side_u: 1.8}     # = geometri saat training (ppe_cls.HEAD_GEOM)
+    torso_geom: {top_u: 0.15, side_u: 2.4}
 
 vehicle:
   require_moving: false       # true di operasi nyata; false saat uji KPI (pertanyaan terbuka #2)

@@ -17,6 +17,7 @@ class CabinDetections:
     dets: list[Detection] = field(default_factory=list)
     phone_box: tuple | None = None            # ponsel yang lolos filter (None = tidak ada)
     phone_info: dict = field(default_factory=dict)   # referensi/alasan tolak filter ponsel (debug)
+    ppe_info: dict = field(default_factory=dict)     # P(tanpa helm/rompi) dari classifier A8 (debug)
 
 
 def iou(a, b) -> float:

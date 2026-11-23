@@ -17,6 +17,9 @@ from .indicators import IndicatorInput, build_indicators
 from .signals import FaceSignals, SignalExtractor
 from .phone_crop import PhoneCrop
 from .phone_filter import PhoneFilter, face_box_from_landmarks
+from .eye_cls import EyeClassifier
+from .ppe_cls import PpeClassifier
+from .wrist_crop import WristCrop
 from .yolo_cabin import CabinDetections, interpret
 
 
@@ -75,7 +78,27 @@ class CabinPipeline:
         # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
         self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
         self.phone_crop = PhoneCrop(thresholds.get("D06_phone", {}).get("crop"))
-        d09 = thresholds.get("D09_camera_block", {})
+        # A7: pose -> potongan ponsel di sekitar tangan (model di runtime cabin.pose, ambang di D06_phone.wrist_crop)
+        self.wrist_crop = WristCrop(thresholds.get("D06_phone", {}).get("wrist_crop"))
+        self.pose = None
+        if self.wrist_crop.enabled and self.detector is not None:
+            try:
+                from src.backends.pose import make_pose
+                self.pose = make_pose(cab.get("pose", {"weights": "models/weights/yolo11n-pose.onnx"}))
+            except FileNotFoundError as e:
+                print(f"[cabin] pose nonaktif -> potongan tangan D-06 tidak jalan. {e}")
+        # A8: classifier helm/rompi di potongan kepala/dada dari kotak wajah (D10_ppe.classifier)
+        # A9: classifier mata untuk frame cadangan pose (signals.eye_classifier)
+        self.ppe_cls = self.eye_cls = None
+        for attr, cls_, cfg_, what in (
+                ("ppe_cls", PpeClassifier, thresholds.get("D10_ppe", {}).get("classifier"), "APD D-10"),
+                ("eye_cls", EyeClassifier, thresholds.get("signals", {}).get("eye_classifier"), "mata A9")):
+            try:
+                m = cls_(cfg_)
+                setattr(self, attr, m if m.enabled else None)
+            except FileNotFoundError as e:
+                print(f"[cabin] classifier {what} nonaktif. {e}")
+        d09 =thresholds.get("D09_camera_block", {})
         self.partial_block = PartialBlock(d09.get("partial"), d09.get("mean_min", 15), d09.get("mean_max", 240))
         # cabin.yolo.parallel: YOLO di thread sendiri, paralel dengan MediaPipe (satu thread -> urutan tetap)
         # cabin.yolo.async: frame TIDAK menunggu YOLO; hasil terbaru dipakai sampai hasil baru selesai.
@@ -125,6 +148,8 @@ class CabinPipeline:
 
         t1 = time.perf_counter()
         obs = self.face.process(roi_img, frame.ts_ms, off)
+        if self.eye_cls is not None and obs.present and obs.pose_only and obs.eye_pts is not None:
+            obs.eye_closed_p = self.eye_cls.p_closed(roi_img, obs.eye_pts)   # titik mata dalam koordinat ROI
         tm["face"] = (time.perf_counter() - t1) * 1000
         self._auto_recalibrate(obs.present, frame.ts_ms)
         sig = self.signals.update(obs, frame.ts_ms)
@@ -183,10 +208,15 @@ class CabinPipeline:
 
     def _yolo_post(self, dets, yolo_in, det_conf, off, face_box, yaw, wh, ts_ms, tm) -> CabinDetections:
         """Setelah prediksi: pass ponsel di crop pengemudi, offset ROI -> frame, interpretasi D-06/D-10."""
+        fb_roi = None if face_box is None else (face_box[0] - off[0], face_box[1] - off[1],
+                                                face_box[2] - off[0], face_box[3] - off[1])
+        if self.pose is not None:
+            # A7: potongan ponsel di sekitar pergelangan tangan pengemudi (koordinat ROI)
+            t4 = time.perf_counter()
+            dets = self.wrist_crop.run(self.detector, self.pose, yolo_in, dets, fb_roi, det_conf)
+            tm["wrist"] = (time.perf_counter() - t4) * 1000
         if self.phone_crop.enabled:
             # pass kedua: ponsel di potongan area pengemudi (koordinat ROI, sama dengan `dets`)
-            fb_roi = None if face_box is None else (face_box[0] - off[0], face_box[1] - off[1],
-                                                    face_box[2] - off[0], face_box[3] - off[1])
             t3 = time.perf_counter()
             dets = self.phone_crop.run(self.detector, yolo_in, dets, fb_roi, ts_ms, det_conf)
             if self.phone_crop.last_box is not None:
@@ -195,8 +225,15 @@ class CabinPipeline:
             for d in dets:
                 x1, y1, x2, y2 = d.xyxy
                 d.xyxy = (x1 + off[0], y1 + off[1], x2 + off[0], y2 + off[1])
-        return interpret(dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
-                         phone_filter=self.phone_filter, ts_ms=ts_ms, face_box=face_box, yaw=yaw, frame_wh=wh)
+        res = interpret(dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
+                        phone_filter=self.phone_filter, ts_ms=ts_ms, face_box=face_box, yaw=yaw, frame_wh=wh)
+        if self.ppe_cls is not None:
+            t5 = time.perf_counter()
+            c = self.ppe_cls.classify(yolo_in, fb_roi)          # gambar input YOLO (ROI, praproses sama)
+            res.no_helmet, res.no_vest = self.ppe_cls.combine(res.no_helmet, res.no_vest, c)
+            res.ppe_info = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in c.items() if k.startswith("p_")}
+            tm["ppe_cls"] = (time.perf_counter() - t5) * 1000
+        return res
 
     def _yolo_job(self, roi_img, det_conf, off, face_box, yaw, wh, ts_ms):
         """Satu putaran YOLO lengkap di thread pekerja (mode async). Satu pekerja -> PhoneFilter tetap berurutan."""
