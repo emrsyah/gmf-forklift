@@ -12,11 +12,17 @@ runtime:
       # nvvidconv (VIC, hardware) memperkecil ke 960x720 sebelum ke CPU: MediaPipe/YOLO memakai <= 640 px.
       # Uji 2026-11-16 di ruangan redup: auto-exposure memanjang -> FPS turun ke ~12 dan noise tinggi (est. 23).
       # exposuretimerange maks 33 ms (ns) menjaga 30 FPS (sisanya ditutup gain); tnr-mode 2 = pengurang noise ISP.
+      # Uji forklift 2026-11-23 (15:25-16:00, luar ruangan): kamera menghadap terlalu tinggi; wajah di tepi
+      # bawah, separuh gambar langit -> AE mengikuti langit, wajah gelap, MediaPipe "terlihat 0%". Kamera tidak
+      # boleh dipindah (mengganggu pengemudi), jadi:
+      #   aeregion  = AE hanya mengukur area pengemudi (koordinat sensor 1640x1232: kiri atas kanan bawah bobot)
+      #   nvvidconv left/right/top/bottom = crop area pengemudi (4:3) dari sensor penuh -> wajah ~1,5x lebih besar
       pipeline: >-
         nvarguscamerasrc sensor-id=0 exposuretimerange="13000 33000000" gainrange="1 16"
-        tnr-mode=2 tnr-strength=0.6 ee-mode=1 !
+        tnr-mode=2 tnr-strength=0.6 ee-mode=1 aeregion="450 700 1190 1232 1.0" !
         video/x-raw(memory:NVMM),width=1640,height=1232,framerate=30/1 !
-        nvvidconv ! video/x-raw,width=960,height=720,format=GRAY8 ! appsink drop=1 max-buffers=1
+        nvvidconv left=265 right=1374 top=400 bottom=1232 !
+        video/x-raw,width=960,height=720,format=GRAY8 ! appsink drop=1 max-buffers=1
       # GRAY8 langsung dari nvvidconv (VIC): tanpa videoconvert BGRx->BGR di CPU, lalu BGR->GRAY lagi di
       # simulate_nir. Uji 2026-11-23: capture 77% -> 53% CPU @30 fps, simulate_nir 2.3 -> 1.7 ms.
       # Luma GRAY8 = studio range 16..235 -> diregangkan ke 0..255 (nilai sama dengan jalur BGR lama).
