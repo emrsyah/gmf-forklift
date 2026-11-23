@@ -186,6 +186,14 @@ recording:
   # klip diunduh lewat uplink 5G yang sama dengan alarm -> batasi bitrate; thread encoder dibatasi agar FPS CV
   # tidak turun tajam setelah alarm (Orin Nano: x264 software, tanpa encoder hardware)
   x264_args: [-crf, "26", -maxrate, 1500k, -bufsize, 3000k, -threads, "2"]
+  encoder_nice: 10          # Linux: encoder klip kalah prioritas dari loop deteksi (K5)
+
+# Batas thread pustaka numerik (src/perf.py). null = bawaan pustaka (tiap pustaka ~1 thread per core).
+# Di Jetson, thread pekerja OpenBLAS/OpenMP/OpenCV ikut berputar saat menunggu; ukur CPU+FPS dulu sebelum diisi.
+threads:
+  blas: null                # OpenBLAS (numpy, scipy)
+  openmp: null              # libgomp
+  opencv: null              # cv2.setNumThreads
 
 # Rekaman kamera kabin terus-menerus untuk pengumpulan data (frame mentah dari kamera, SEBELUM simulate_nir,
 # tanpa overlay). Segmen + <video>.ts.csv (frame,ts_ms) -> bisa diputar ulang lewat replay harness.
@@ -197,8 +205,14 @@ continuous_recording:
   segment_s: 300            # 5 menit per file
   fps: 10                   # cukup untuk anotasi/replay. Ukuran MJPG sangat tergantung noise: Jetson malam 960 px ~10 GB/jam
   max_side: 960
-  codec: MJPG               # murah di CPU (Orin Nano tanpa encoder hardware)
+  # MJPG: murah di CPU, besar (Jetson 640 px ~3.7 GB/jam). H264: satu encode x264 (ffmpeg, nice) -> MP4
+  # terfragmentasi, jauh lebih kecil; CPU x264 diukur dulu di perangkat sebelum dipakai.
+  codec: MJPG
   ext: avi
+  h264_ext: mp4
+  ffmpeg: ffmpeg
+  x264_args: [-preset, ultrafast, -crf, "28", -threads, "1"]
+  encoder_nice: 10          # Linux: encoder kalah prioritas dari deteksi
   jpeg_quality: 85
   min_free_gb: 15           # berhenti merekam jika ruang disk kurang dari ini
   max_queue: 60             # frame antre ke thread penulis; penuh -> frame rekaman dibuang, deteksi tidak melambat

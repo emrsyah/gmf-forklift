@@ -1,0 +1,37 @@
+# MediaMTX untuk kamera depan (front_preview.stream di configs/*.yaml).
+#
+# Alur: src.main -> ffmpeg -c copy (H.264 dari C930e, tanpa encode ulang) -> RTSP publish
+#       rtsp://127.0.0.1:8554/front -> MediaMTX -> pembaca:
+#         - browser:  http://<jetson>:8889/front   (WebRTC, tanpa plugin)
+#         - VLC/ffplay/Minerva: rtsp://<jetson>:8554/front
+#
+# Hanya RTSP + WebRTC yang dinyalakan; HLS/RTMP/SRT/API mati (tidak dipakai, hemat CPU & port).
+# Tidak ada rekaman di sini: rekaman sudah ditulis src/io/h264_recorder.py.
+# Binary MediaMTX TIDAK ada di repo (lihat tools/jetson/mediamtx.sh).
+
+logLevel: warn
+
+api: false
+metrics: false
+pprof: false
+playback: false
+rtmp: false
+hls: false
+srt: false
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]          # sama dengan front_preview.stream.transport
+
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: true  # umumkan IP Wi-Fi/USB-C/5G Jetson ke browser
+
+pathDefaults:
+  record: false
+
+paths:
+  front:
+    source: publisher
+    overridePublisher: true    # publisher baru (setelah restart src.main) langsung mengambil alih

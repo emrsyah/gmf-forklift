@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import queue
 import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -21,14 +22,61 @@ import cv2
 import numpy as np
 
 
+class X264Writer:
+    """Pengganti cv2.VideoWriter: frame BGR -> ffmpeg (rawvideo) -> libx264 -> MP4 terfragmentasi.
+
+    Satu encode H.264 berprioritas rendah (nice) menggantikan MJPG: ~3-5x lebih kecil. Frame masuk dengan
+    fps tetap; waktu asli tetap di .ts.csv. MP4 terfragmentasi tetap bisa dibuka walau proses mati."""
+
+    def __init__(self, ffmpeg: str, path: Path, fps: float, size: tuple[int, int], x264_args: list,
+                 nice: int = 0):
+        from src.io.proc import popen_nice
+        w, h = size
+        cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-framerate", f"{fps:g}", "-i", "pipe:0",
+               "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",      # yuv420p butuh ukuran genap
+               "-c:v", "libx264", *[str(a) for a in x264_args], "-pix_fmt", "yuv420p",
+               "-movflags", "+frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", str(path)]
+        self.size = size
+        self.proc = popen_nice(cmd, nice, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE)
+
+    def isOpened(self) -> bool:  # noqa: N802 - antarmuka sama dengan cv2.VideoWriter
+        return self.proc.poll() is None
+
+    def write(self, img: np.ndarray) -> None:
+        if (img.shape[1], img.shape[0]) != self.size:
+            raise ValueError(f"ukuran frame {img.shape[1]}x{img.shape[0]} != {self.size}")
+        self.proc.stdin.write(np.ascontiguousarray(img).tobytes())
+
+    def release(self, timeout_s: float = 30.0) -> None:
+        try:
+            self.proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout_s)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+        err = self.proc.stderr.read().decode(errors="replace").strip() if self.proc.stderr else ""
+        if self.proc.returncode not in (0, None) or err:
+            print(f"[rekam] ffmpeg x264 selesai kode {self.proc.returncode}: {err[-300:]}", flush=True)
+
+
 class ContinuousRecorder:
     def __init__(self, cfg: dict, device_id: str = "dev"):
         self.dir = Path(cfg.get("dir", "recordings"))
         self.segment_s = float(cfg.get("segment_s", 300))
         self.fps = float(cfg.get("fps", 10))
         self.max_side = int(cfg.get("max_side", 960))
-        self.codec = str(cfg.get("codec", "MJPG"))
+        self.codec = str(cfg.get("codec", "MJPG")).upper()
         self.ext = str(cfg.get("ext", "avi"))
+        if self.codec == "H264":
+            self.ext = str(cfg.get("h264_ext", "mp4"))
+            self.ffmpeg = shutil.which(cfg.get("ffmpeg", "ffmpeg"))
+            self.x264_args = list(cfg.get("x264_args") or ["-preset", "ultrafast", "-crf", "28"])
+            self.nice = int(cfg.get("encoder_nice", 0))
         self.quality = int(cfg.get("jpeg_quality", 85))
         self.min_free_gb = float(cfg.get("min_free_gb", 10))
         self.prefix = f"{cfg.get('prefix', 'cabin')}_{device_id}"
@@ -83,7 +131,14 @@ class ContinuousRecorder:
         out.mkdir(parents=True, exist_ok=True)
         path = out / f"{self.prefix}_{stamp}.{self.ext}"
         h, w = shape[:2]
-        wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*self.codec), self.fps, (w, h))
+        if self.codec == "H264":
+            if self.ffmpeg is None:
+                self.stopped_reason = "ffmpeg tidak ditemukan (codec H264)"
+                print(f"[rekam] BERHENTI: {self.stopped_reason}", flush=True)
+                return False
+            wr = X264Writer(self.ffmpeg, path, self.fps, (w, h), self.x264_args, self.nice)
+        else:
+            wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*self.codec), self.fps, (w, h))
         if not wr.isOpened():
             self.stopped_reason = f"VideoWriter {self.codec} gagal membuka {path}"
             print(f"[rekam] BERHENTI: {self.stopped_reason}", flush=True)
@@ -128,7 +183,7 @@ class ContinuousRecorder:
                 self._ts_file.write(f"{self._seg_frames},{ts_ms}\n")
                 self._seg_frames += 1
                 self.frames += 1
-            except (OSError, cv2.error) as e:
+            except (OSError, ValueError, cv2.error) as e:
                 self.stopped_reason = f"tulis gagal: {e}"
                 print(f"[rekam] BERHENTI: {self.stopped_reason}", flush=True)
                 break

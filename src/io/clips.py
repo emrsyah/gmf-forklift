@@ -62,6 +62,7 @@ class ClipRecorder:
         # batasi bitrate (klip diunduh lewat uplink 5G yang sama dengan alarm) dan thread encoder (CPU CV)
         self.x264_args = [str(a) for a in cfg.get("x264_args", ["-crf", "26", "-maxrate", "1500k",
                                                                 "-bufsize", "3000k", "-threads", "2"])]
+        self.encoder_nice = int(cfg.get("encoder_nice", 0))
         if self.ffmpeg is None:
             print("[clips] PERINGATAN: ffmpeg tidak ada -> klip mp4v (belum tentu bisa diputar browser, K7)",
                   flush=True)
@@ -179,7 +180,9 @@ class ClipRecorder:
                        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2,scale=out_range=tv,format=yuv420p",
                        "-c:v", "libx264", "-preset", "ultrafast", *self.x264_args, "-pix_fmt", "yuv420p",
                        "-color_range", "tv", "-movflags", "+faststart", str(tmp)]
-                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                from src.io.proc import popen_nice
+                # nice: encoder klip kalah prioritas dari deteksi (tanpa ini FPS turun tajam setelah alarm)
+                proc = popen_nice(cmd, self.encoder_nice, stdin=subprocess.PIPE)
                 for _, jpg in p.frames:
                     proc.stdin.write(jpg)
                 proc.stdin.close()

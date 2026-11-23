@@ -135,6 +135,9 @@ def main(argv=None):
         overrides = deep_merge(overrides, load_yaml(path))
     cfg = Config.load(a.runtime, a.thresholds, a.events, overrides=overrides or None)
     rt = cfg.runtime
+    if rt.get("threads"):
+        from src.perf import apply_thread_limits
+        print(f"[threads] batas thread: {apply_thread_limits(rt['threads'])}", flush=True)
     if a.source:
         rt["cabin"]["source"] = deep_merge(rt["cabin"]["source"], parse_source_arg(a.source))
     if a.fast:
@@ -243,9 +246,12 @@ def main(argv=None):
     if show and rt.get("ui", {}).get("fullscreen", False):
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
         cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    post_ms: dict[str, float] = {}           # waktu kerja SETELAH deteksi + tunggu kamera (diagnosis CPU Jetson)
+    t_iter_end = time.perf_counter()
     try:
         with src:
             for frame in src:
+                post_ms["cam"] = (time.perf_counter() - t_iter_end) * 1000   # menunggu/mengambil frame
                 if cont is not None:
                     cont.push(frame.image, frame.ts_ms)
                 st = pipe.process(frame)
@@ -271,7 +277,8 @@ def main(argv=None):
                 if a.log_fps and time.monotonic() - t_log >= a.log_fps:
                     dt = time.monotonic() - t_log
                     tm = " ".join(f"{k} {v:.0f}ms" for k, v in st.timings_ms.items())
-                    print(f"[fps] {n_log / dt:5.1f} FPS | {tm} | yolo {pipe.yolo_status}", flush=True)
+                    pm = " ".join(f"{k} {v:.1f}" for k, v in post_ms.items())
+                    print(f"[fps] {n_log / dt:5.1f} FPS | {tm} | yolo {pipe.yolo_status} | ms: {pm}", flush=True)
                     if face_log:   # diagnosis jarak jauh: seberapa sering wajah terlihat + pose/mata median
                         import numpy as np
                         y, p, r, o = np.nanmedian(np.array(face_log, dtype=float), axis=0)
@@ -287,13 +294,20 @@ def main(argv=None):
                 live_due = live.due(now_ms) and sinks.wants_frames()
                 need_vis = (show or recorder is not None or (web is not None and web.wants("cabin"))
                             or (live_due and live.overlay))
+                tq = time.perf_counter()
                 vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) if need_vis else None
+                post_ms["draw"] = (time.perf_counter() - tq) * 1000
+                tq = time.perf_counter()
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
+                post_ms["clip"] = (time.perf_counter() - tq) * 1000
+                tq = time.perf_counter()
                 if live_due:
                     sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
                 if web is not None:
                     web.publish(vis, "cabin")
+                post_ms["out"] = (time.perf_counter() - tq) * 1000
+                t_iter_end = time.perf_counter()
                 keys = []
                 if show:
                     show_image(win, vis, max_side)
