@@ -287,11 +287,13 @@ D10_ppe:
   # Bobot: training/train_ppe_cls.py (data publik). Ambang no_*_thr = ambang val di report.json training.
   # mode: replace = classifier menggantikan aturan YOLO (bagian tak terlihat = bukan pelanggaran)
   #       and = keduanya harus setuju (alarm palsu lebih sedikit) | or = salah satu cukup (recall lebih tinggi)
+  # Hasil ppe_cls_v1 (test publik): head recall 0.90 / alarm palsu 0.046 vs aturan YOLO 0.73 / 0.004;
+  # torso 0.78 / 0.40 vs YOLO 0.94 / 0.17 -> tetap OFF (alarm palsu per potongan terlalu tinggi untuk K3/<1 per jam).
   classifier:
     enabled: false
     head_weights: models/weights/ppe_head.onnx
     torso_weights: models/weights/ppe_torso.onnx
-    input_px: 96
+    input_px: 64
     no_helmet_thr: 0.5
     no_vest_thr: 0.5
     min_face_u_px: 40           # wajah lebih kecil -> potongan terlalu kabur, tidak dinilai

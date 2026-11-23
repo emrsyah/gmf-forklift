@@ -56,15 +56,19 @@ class FileSink(EventSink):
         p.mkdir(parents=True, exist_ok=True)
         return p / "events.jsonl"
 
+    def _append(self, p: Path, obj: dict):
+        # fsync: event jarang, dan baris yang belum sampai disk hilang jika daya forklift putus (K4/K7)
+        with self._lock, open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
     def send(self, event):
-        with self._lock, open(self.path_for(event["ts_event_ms"]), "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        self._append(self.path_for(event["ts_event_ms"]), event)
 
     def media(self, payload):
         # bukti lokal: events/YYYY-MM-DD/media.jsonl (heartbeat tidak ditulis ke file, terlalu sering)
-        p = self.path_for(payload["ts_event_ms"]).with_name("media.jsonl")
-        with self._lock, open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        self._append(self.path_for(payload["ts_event_ms"]).with_name("media.jsonl"), payload)
 
 
 class MqttSink(EventSink):
@@ -99,6 +103,9 @@ class MqttSink(EventSink):
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.connected = False
+        self.flush_timeout_s = 5.0
+        self._flush_lock = threading.Lock()
+        self._flush_thread: threading.Thread | None = None
         try:
             self.client.connect_async(host, int(port), keepalive=int(keepalive_s))
             self.client.loop_start()
@@ -115,7 +122,17 @@ class MqttSink(EventSink):
         if self.connected:
             if self.status_topic:
                 self.client.publish(self.status_topic, self._status("online"), qos=1, retain=True)
-            self._flush_spool()
+            # BUKAN di callback ini: callback berjalan di thread jaringan paho, dan wait_for_publish di sini tidak
+            # pernah melihat PUBACK (thread yang memprosesnya sedang menunggu) -> 5 s per file, file tidak terhapus,
+            # dikirim ulang tiap reconnect. Thread sendiri, satu pada satu waktu.
+            self._start_flush()
+
+    def _start_flush(self):
+        with self._flush_lock:
+            if self._flush_thread is not None and self._flush_thread.is_alive():
+                return
+            self._flush_thread = threading.Thread(target=self._flush_spool, name="mqtt-spool", daemon=True)
+            self._flush_thread.start()
 
     def _on_disconnect(self, *args):
         self.connected = False
@@ -138,18 +155,30 @@ class MqttSink(EventSink):
                     return
             except Exception:
                 pass
-        name = f"{payload['ts_event_ms']}_{payload['event_id']}_media.json"
-        (self.spool / name).write_text(body, encoding="utf-8")
+        self._spool_write(f"{payload['ts_event_ms']}_{payload['event_id']}_media.json", body)
+
+    def _spool_write(self, name: str, body: str):
+        """Atomik (tmp -> rename): thread flush tidak pernah membaca file setengah tertulis."""
+        tmp = self.spool / (name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(body)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.spool / name)
 
     def _flush_spool(self):
+        """Kirim ulang antrean disk (urut waktu). File dihapus hanya setelah PUBACK; berhenti jika putus lagi."""
         for p in sorted(self.spool.glob("*.json")):
+            if not self.connected:
+                break
             try:
                 payload = p.read_text(encoding="utf-8")
                 topic = self.media_topic if p.stem.endswith("_media") and self.media_topic else self.topic
                 info = self.client.publish(topic, payload, qos=self.qos)
-                info.wait_for_publish(timeout=5)
-                if info.is_published():
-                    p.unlink()
+                info.wait_for_publish(timeout=self.flush_timeout_s)
+                if not info.is_published():
+                    break                      # broker lambat/putus: sisa antrean dicoba saat tersambung lagi
+                p.unlink()
             except Exception:
                 break
 
@@ -162,8 +191,7 @@ class MqttSink(EventSink):
                     return
             except Exception:
                 pass
-        name = f"{event['ts_event_ms']}_{event['event_id']}_{event['phase']}.json"
-        (self.spool / name).write_text(payload, encoding="utf-8")
+        self._spool_write(f"{event['ts_event_ms']}_{event['event_id']}_{event['phase']}.json", payload)
 
     def close(self):
         try:

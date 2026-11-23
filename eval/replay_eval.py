@@ -201,6 +201,9 @@ def render_markdown(s: dict, meta: dict, gate: dict) -> str:
              f"·  YOLO kabin: `{meta['yolo']}`")
     if meta.get("overrides"):
         L.append(f"- override: `{meta['overrides']}`")
+    if meta.get("ignored_codes"):
+        L.append(f"- **event dibuang sebelum penilaian:** kode `{meta['ignored_codes']}` "
+                 f"({meta.get('ignored_events', 0)} event) — truth tidak mencatat kondisi tersebut")
     L.append("")
     L.append("## Ringkasan\n")
     L.append("| Metrik | Nilai | Gerbang |")
@@ -290,8 +293,20 @@ def write_report(s: dict, meta: dict, out_dir: Path) -> Path:
     return out_dir / "report.md"
 
 
+def drop_codes(runs: dict[str, VideoRun], codes: set[str]) -> int:
+    """Buang event kode tertentu sebelum penilaian (mis. D10 pada rekaman simulasi yang sengaja tanpa APD:
+    alert D10 di sana BENAR, tetapi truth.csv tidak mencatat kondisi APD). Kembalikan jumlah event dibuang."""
+    n = 0
+    for run in runs.values():
+        keep = [e for e in run.events if norm_code(e["code"]) not in codes]
+        n += len(run.events) - len(keep)
+        run.events = keep
+    return n
+
+
 def evaluate(truth: Path, cfg: Config, mode: str = "fast", use_yolo: bool | None = None,
-             runner: Callable[[Path, Config], VideoRun] | None = None, tail_s: float | None = None) -> dict:
+             runner: Callable[[Path, Config], VideoRun] | None = None, tail_s: float | None = None,
+             ignore_codes: set[str] | None = None) -> dict:
     rows = load_truth(truth)
     if tail_s is None:
         tail_s = load_yaml("configs/scenarios.yaml").get("match_tail_s", 2.0)
@@ -303,7 +318,10 @@ def evaluate(truth: Path, cfg: Config, mode: str = "fast", use_yolo: bool | None
         print(f"[replay] {p.name} ...", flush=True)
         runs[v] = runner(p, cfg) if runner else run_video(p, cfg, mode, use_yolo)
         print(f"[replay]   {len(runs[v].events)} event, {runs[v].frames} frame, {runs[v].wall_s:.1f} s", flush=True)
-    return score(rows, runs, tail_s)
+    dropped = drop_codes(runs, ignore_codes) if ignore_codes else 0
+    s = score(rows, runs, tail_s)
+    s["ignored_events"] = dropped
+    return s
 
 
 def main(argv=None):
@@ -317,6 +335,9 @@ def main(argv=None):
                     help="override threshold, mis. D05_distraction.pitch_only_extra_hold_s=1.0")
     ap.add_argument("--set-runtime", action="append", default=[],
                     help="override runtime.yaml, mis. cabin.face.crop.enabled=true")
+    ap.add_argument("--ignore-codes", default="",
+                    help="kode yang event-nya dibuang sebelum penilaian, dipisah koma (mis. D10 untuk rekaman "
+                         "simulasi tanpa properti APD). Dicatat di laporan.")
     a = ap.parse_args(argv)
 
     cfg = Config.load()
@@ -329,11 +350,13 @@ def main(argv=None):
         k, v = kv.split("=", 1)
         set_dotted(cfg.runtime, k, yaml.safe_load(v))
     truth = Path(a.truth)
-    s = evaluate(truth, cfg, a.mode, use_yolo=False if a.no_yolo else None)
+    ignore = {norm_code(c) for c in a.ignore_codes.split(",") if c.strip()}
+    s = evaluate(truth, cfg, a.mode, use_yolo=False if a.no_yolo else None, ignore_codes=ignore)
     when = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = Path(a.out) if a.out else REPO_ROOT / "eval" / "reports" / when
     meta = {"when": when, "truth": str(truth), "mode": a.mode, "simulate_nir": a.simulate_nir,
-            "yolo": not a.no_yolo, "overrides": a.set + a.set_runtime}
+            "yolo": not a.no_yolo, "overrides": a.set + a.set_runtime,
+            "ignored_codes": sorted(ignore), "ignored_events": s.get("ignored_events", 0)}
     p = write_report(s, meta, out)
     print(p.read_text(encoding="utf-8"))
     print(f"\nLaporan: {p}")

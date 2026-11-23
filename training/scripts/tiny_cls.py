@@ -79,7 +79,7 @@ def train(name: str, Xtr, ytr, Xva, yva, epochs: int, out: Path, seed: int = 0, 
     steps = epochs * ((len(Xtr) + batch - 1) // batch)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps)
     w = torch.tensor(len(ytr) / (2 * np.bincount(ytr, minlength=2).clip(1)), dtype=torch.float32)   # imbang kelas
-    xt = torch.from_numpy(Xtr[:, None].astype(np.float32) / 255)
+    xt = torch.from_numpy(np.ascontiguousarray(Xtr[:, None]))      # uint8: float per batch (hemat RAM)
     yt = torch.from_numpy(np.asarray(ytr)).long()
     best, best_state = -1.0, None
     for ep in range(epochs):
@@ -87,7 +87,7 @@ def train(name: str, Xtr, ytr, Xva, yva, epochs: int, out: Path, seed: int = 0, 
         perm = torch.randperm(len(xt))
         for i in range(0, len(xt), batch):
             idx = perm[i:i + batch]
-            xb = augment(xt[idx], blur_max_scale)
+            xb = augment(xt[idx].float() / 255, blur_max_scale)
             if flip and torch.rand(1).item() < 0.5:
                 xb = xb.flip(3)
             loss = F.cross_entropy(net(xb), yt[idx], weight=w)

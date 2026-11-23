@@ -5,7 +5,32 @@ import cv2
 import numpy as np
 import pytest
 
-from src.io.continuous import ContinuousRecorder
+from src.io.continuous import ContinuousRecorder, avi_needs_repair, repair_unfinished
+
+
+def _killed_avi(d, name="cabin_x.avi", n=60):
+    """Salinan .avi sebelum release() = keadaan file saat proses dibunuh di tengah segmen."""
+    live = d / "live_src.avi"
+    vw = cv2.VideoWriter(str(live), cv2.VideoWriter_fourcc(*"MJPG"), 10, (320, 240), True)
+    rng = np.random.default_rng(0)
+    for _ in range(n):                       # noise: JPEG besar -> buffer penulis sudah ter-flush ke disk
+        vw.write(rng.integers(0, 255, (240, 320, 3), dtype=np.uint8))
+    shutil.copy(live, d / name)
+    vw.release()
+    return d / name, live
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="butuh ffmpeg")
+def test_repair_unfinished_avi(tmp_path):
+    import time
+    killed, healthy = _killed_avi(tmp_path)
+    assert avi_needs_repair(killed) and not avi_needs_repair(healthy)
+    assert repair_unfinished(tmp_path, shutil.which("ffmpeg"), older_than=0) == []    # segmen "baru": tidak disentuh
+    fixed = repair_unfinished(tmp_path, shutil.which("ffmpeg"), older_than=time.time() + 1)
+    assert fixed == [killed]
+    cap = cv2.VideoCapture(str(killed))
+    assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) > 0
+    assert not list(tmp_path.glob("*.repair.*"))
 
 
 def _cfg(tmp_path, **kw):

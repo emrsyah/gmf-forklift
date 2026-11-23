@@ -49,6 +49,15 @@ def test_scoring_first_hit_and_false_alarms(tmp_path):
     assert "K3 terdeteksi" in txt and "Confusion matrix" in txt
 
 
+def test_ignore_codes_dropped_before_scoring(tmp_path):
+    truth = _truth(tmp_path, ["a.mp4,10,13,D02,A-03,P1,normal,5"])
+    runs = {"a.mp4": VideoRun("a.mp4", 100, [_ev(5.0, "D10", "A-02", 1), _ev(11.0, "D-02", "A-03", 2),
+                                             _ev(60.0, "D-10", "A-02", 3)])}
+    s = evaluate(truth, Config.load(), runner=lambda p, c: runs[p.name], ignore_codes={"D10"}, tail_s=2.0)
+    assert s["ignored_events"] == 2
+    assert s["detected"] == 1 and not s["stray_events"]
+
+
 def _make_video(path: Path, segments: list[tuple[float, np.ndarray]], fps: float = 15.0):
     h, w = segments[0][1].shape[:2]
     vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))

@@ -64,6 +64,50 @@ class X264Writer:
             print(f"[rekam] ffmpeg x264 selesai kode {self.proc.returncode}: {err[-300:]}", flush=True)
 
 
+def avi_needs_repair(path: Path) -> bool:
+    """Segmen .avi yang prosesnya mati sebelum release(): header/indeks tidak final -> jumlah frame 0, tidak bisa
+    di-seek di pemutar. Frame-nya sendiri masih utuh (kecuali yang terakhir)."""
+    if path.stat().st_size == 0:
+        return False
+    cap = cv2.VideoCapture(str(path))
+    try:
+        return cap.isOpened() and int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) <= 0
+    finally:
+        cap.release()
+
+
+def repair_avi(path: Path, ffmpeg: str, timeout_s: float = 600) -> bool:
+    """Remux tanpa encode ulang (ffmpeg -c copy) -> indeks AVI baru. File asli diganti hanya jika berhasil."""
+    tmp = path.with_name(path.stem + ".repair" + path.suffix)
+    try:
+        r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path), "-c", "copy",
+                            str(tmp)], capture_output=True, timeout=timeout_s)
+    except (OSError, subprocess.TimeoutExpired):
+        r = None
+    if r is None or r.returncode != 0 or not tmp.exists() or avi_needs_repair(tmp):
+        tmp.unlink(missing_ok=True)
+        return False
+    tmp.replace(path)
+    return True
+
+
+def repair_unfinished(root: Path, ffmpeg: str | None, older_than: float, ext: str = "avi") -> list[Path]:
+    """Perbaiki segmen sesi sebelumnya (mtime < older_than) yang tidak sempat ditutup. Kembalikan yang diperbaiki."""
+    fixed = []
+    if not ffmpeg or not root.exists():
+        return fixed
+    for p in sorted(root.rglob(f"*.{ext}")):
+        try:
+            if ".repair." in p.name or p.stat().st_mtime >= older_than or not avi_needs_repair(p):
+                continue
+            if repair_avi(p, ffmpeg):
+                fixed.append(p)
+                print(f"[rekam] segmen tidak final diperbaiki: {p}", flush=True)
+        except OSError:
+            continue
+    return fixed
+
+
 class ContinuousRecorder:
     def __init__(self, cfg: dict, device_id: str = "dev"):
         self.dir = Path(cfg.get("dir", "recordings"))
@@ -92,6 +136,13 @@ class ContinuousRecorder:
         self._seg_frames = 0
         self._thread = threading.Thread(target=self._run, name="continuous-rec", daemon=True)
         self._thread.start()
+        # segmen MJPG sesi lalu yang terputus (restart supervisor, daya putus) -> remux di thread terpisah
+        if self.codec == "MJPG" and cfg.get("repair_on_start", True):
+            started = time.time()
+            ff = shutil.which(cfg.get("ffmpeg", "ffmpeg"))
+            self._repair_thread = threading.Thread(target=repair_unfinished, args=(self.dir, ff, started, self.ext),
+                                                   name="continuous-repair", daemon=True)
+            self._repair_thread.start()
 
     # ---------------------------------------------------------------- pipeline thread
     def wants(self, ts_ms: int) -> bool:

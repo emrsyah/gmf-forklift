@@ -72,6 +72,16 @@ Invoke-Remote ($check -replace "`r", "")
 
 if ($Restart) {
     Write-Host "restart detektor"
-    Invoke-Remote "cd $RemoteDir && bash tools/jetson/live.sh stop; bash tools/jetson/live.sh start"
+    # Saat boot, ~/minerva/run_detector.sh (crontab @reboot) menjalankan src.main dalam loop dan menyalakannya
+    # lagi 5 s setelah berhenti. Jika loop itu ada: cukup hentikan src.main (loop memuat kode baru).
+    # live.sh start di sampingnya membuat proses kedua yang gagal membuka kamera (uji 2026-11-24).
+    $restart = @"
+if pgrep -f run_detector.sh >/dev/null; then
+  pkill -f 'python -u -m src.main' ; sleep 12 ; pgrep -af 'python -u -m src.main' || echo 'PERINGATAN: src.main belum jalan lagi'
+else
+  cd $RemoteDir && bash tools/jetson/live.sh stop; bash tools/jetson/live.sh start
+fi
+"@
+    Invoke-Remote ($restart -replace "`r", "")
 }
 Write-Host "Selesai: $rev di $JetsonHost (cadangan backups/pre-$stamp.tgz)"
