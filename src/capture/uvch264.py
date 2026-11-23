@@ -126,6 +126,17 @@ def find_xu_unit(descriptors: bytes, guid: uuid.UUID = UVCX_GUID) -> Optional[in
     return None
 
 
+def decode_jpeg(jpeg: bytes | None) -> Optional[np.ndarray]:
+    if not jpeg:
+        return None
+    return cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+
+
+def decode_frame(frame: Frame) -> Optional[np.ndarray]:
+    """Gambar BGR sebuah frame: `image` kalau sudah ada, kalau tidak dekode `meta["jpeg"]` (decode: false)."""
+    return frame.image if frame.image is not None else decode_jpeg(frame.meta.get("jpeg"))
+
+
 # ------------------------------------------------------------------------------------------- kontrol (Linux)
 class UvcxH264:
     """Atur mode H.264 kamera lewat ioctl UVCIOC_CTRL_QUERY. fd dibiarkan terbuka selama kamera dipakai."""
@@ -207,6 +218,10 @@ class UvcH264WebcamSource(WebcamSource):
     `Frame.meta["h264"]` berisi access unit H.264 kalau ada, `meta["h264_idr"]` True untuk keyframe.
 
     Kalau kamera/OS tidak mendukung, jalan sebagai webcam biasa (tanpa meta h264) dan mencatat sebabnya.
+
+    `h264.decode: false` (dipakai pratinjau kamera depan): JPEG TIDAK didekode di sini. `Frame.image` = None
+    dan `meta["jpeg"]` berisi byte JPEG; pemakai mendekode sendiri hanya saat perlu (lihat `decode_frame`).
+    Jangan pakai untuk pipeline deteksi, yang butuh gambar di setiap frame.
     """
 
     def __init__(self, index: int = 0, width: int | None = None, height: int | None = None,
@@ -214,6 +229,7 @@ class UvcH264WebcamSource(WebcamSource):
                  autofocus: bool | None = None, focus: float | None = None, h264: dict | None = None):
         super().__init__(index, width, height, fps, api, fourcc, autofocus, focus)
         h264 = h264 or {}
+        self.decode = bool(h264.get("decode", True))
         self.ctl: UvcxH264 | None = None
         self.negotiated: dict | None = None
         self.h264_error: str | None = None
@@ -248,12 +264,16 @@ class UvcH264WebcamSource(WebcamSource):
         dt = time.monotonic() - self._t0_mono
         meta: dict = {}
         if raw.ndim == 2 and raw.shape[0] == 1:           # buffer MJPG mentah
-            buf = raw.reshape(-1)
-            img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-            if img is None:
-                return self.read()                        # frame rusak dari USB: lewati
+            jpeg = raw.reshape(-1).tobytes()              # salinan: buffer OpenCV dipakai ulang frame berikutnya
+            if self.decode:
+                img = decode_jpeg(jpeg)
+                if img is None:
+                    return self.read()                    # frame rusak dari USB: lewati
+            else:
+                img = None
+                meta["jpeg"] = jpeg
             if self.ctl is not None:
-                au = extract_h264(buf.tobytes())
+                au = extract_h264(jpeg)
                 if au is not None:
                     meta["h264"] = au
                     meta["h264_idr"] = is_idr(au)

@@ -1,6 +1,7 @@
 """Tampilan browser: halaman, stream MJPEG, dan tombol hotkey masuk ke antrean."""
 import queue
 import socket
+import time
 import urllib.request
 
 import numpy as np
@@ -25,11 +26,23 @@ def test_page_stream_and_keys():
         html = urllib.request.urlopen(base + "/", timeout=5).read().decode()
         assert "/stream" in html and "Kalibrasi ulang" in html
 
-        v.publish(np.full((120, 160, 3), 128, np.uint8))
+        img = np.full((120, 160, 3), 128, np.uint8)
+        v.publish(img)
+        assert v._jpg["cabin"] is None                        # tanpa penonton: tidak di-encode
         r = urllib.request.urlopen(base + "/stream", timeout=5)
+        t0 = time.monotonic()
+        while v.viewers("cabin") == 0 and time.monotonic() - t0 < 5:
+            time.sleep(0.01)
+        assert v.wants("cabin")
+        v.publish(img)
         chunk = r.read(400)
         assert b"--frame" in chunk and b"\xff\xd8" in chunk   # header MJPEG + awal JPEG
         r.close()
+        t0 = time.monotonic()
+        while v.viewers("cabin") > 0 and time.monotonic() - t0 < 5:
+            v.publish(img)                                    # server baru tahu putus saat menulis
+            time.sleep(0.05)
+        assert v.viewers("cabin") == 0
 
         req = urllib.request.Request(base + "/key?k=c", method="POST")
         assert urllib.request.urlopen(req, timeout=5).status == 204

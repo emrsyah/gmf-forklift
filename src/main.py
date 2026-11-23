@@ -228,7 +228,15 @@ def main(argv=None):
             else:
                 f_rec = ContinuousRecorder(f_rec_cfg, dev_id)
             print(f"[rekam] kamera depan direkam -> {f_rec.dir}", flush=True)
-        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, f_h264)
+        f_stream = None
+        st_cfg = fp_cfg.get("stream", {}) or {}
+        if st_cfg.get("enabled", False):     # H.264 kamera -> RTSP (MediaMTX) untuk ditonton dari laptop
+            from src.io.h264_stream import H264RtspPublisher
+            try:
+                f_stream = H264RtspPublisher(st_cfg, on_restart=lambda: holder["front"].request_idr())
+            except RuntimeError as e:
+                print(f"[stream] tidak aktif: {e}", flush=True)
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, [f_h264, f_stream])
         holder["front"] = front
     t_log, n_log = time.monotonic(), 0
     face_log: list = []
@@ -274,11 +282,15 @@ def main(argv=None):
                         print(f"[wajah] terlihat 0% | {pipe.calibration.status}", flush=True)
                     t_log, n_log = time.monotonic(), 0
                     face_log = []
-                vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) \
-                    if (show or recorder or web) else None
+                # overlay hanya digambar kalau ada yang memakai frame ini (CPU Jetson: tanpa penonton web
+                # dan tanpa sink live, menggambar tiap frame itu sia-sia)
+                live_due = live.due(now_ms) and sinks.wants_frames()
+                need_vis = (show or recorder is not None or (web is not None and web.wants("cabin"))
+                            or (live_due and live.overlay))
+                vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) if need_vis else None
                 if recorder is not None:
                     recorder.push(vis, frame.ts_ms)
-                if live.due(now_ms) and sinks.wants_frames():
+                if live_due:
                     sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
                 if web is not None:
                     web.publish(vis, "cabin")

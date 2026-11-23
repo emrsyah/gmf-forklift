@@ -62,6 +62,7 @@ class WebView:
         self._seq: dict[str, int] = {"cabin": 0}
         self._last_pub: dict[str, float] = {}
         self._labels: dict[str, str] = {"cabin": "Kamera kabin"}
+        self._viewers: dict[str, int] = {}     # koneksi stream aktif per kanal; 0 -> tidak perlu encode JPEG
         self._cond = threading.Condition()
         view = self
 
@@ -93,6 +94,8 @@ class WebView:
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                     self.end_headers()
                     seen = -1
+                    with view._cond:
+                        view._viewers[ch] = view._viewers.get(ch, 0) + 1
                     try:
                         while True:
                             with view._cond:
@@ -106,6 +109,9 @@ class WebView:
                             self.wfile.write(b"\r\n")
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         return
+                    finally:
+                        with view._cond:
+                            view._viewers[ch] = view._viewers.get(ch, 1) - 1
                 else:
                     self.send_error(404)
 
@@ -139,13 +145,19 @@ class WebView:
             self._jpg.setdefault(channel, None)
             self._seq.setdefault(channel, 0)
 
+    def viewers(self, channel: str = "cabin") -> int:
+        return self._viewers.get(channel, 0)
+
+    def wants(self, channel: str = "cabin") -> bool:
+        """True jika frame berikutnya akan dikirim: ada penonton dan jeda `fps` sudah lewat.
+        Pemanggil bisa melewati kerja mahal (dekode/rotasi/overlay) kalau False."""
+        return (self._viewers.get(channel, 0) > 0
+                and time.monotonic() - self._last_pub.get(channel, 0.0) >= self.min_dt)
+
     def publish(self, img: np.ndarray | None, channel: str = "cabin") -> None:
-        if img is None:
+        if img is None or not self.wants(channel):    # tanpa penonton: jangan encode JPEG
             return
-        now = time.monotonic()
-        if now - self._last_pub.get(channel, 0.0) < self.min_dt:
-            return
-        self._last_pub[channel] = now
+        self._last_pub[channel] = time.monotonic()
         small = resize_max_side(img, self.max_side) if self.max_side else img
         ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:

@@ -228,6 +228,16 @@ front_preview:
     jpeg_quality: 85
     min_free_gb: 15
     max_queue: 60
+  # Dorong H.264 kamera (perlu front.source.h264_mux) ke server RTSP, mis. MediaMTX di perangkat yang sama;
+  # MediaMTX menyajikannya ke laptop (RTSP :8554 / WebRTC :8889 di browser). Tanpa encode ulang.
+  # RTSP tidak membawa rotasi: penonton memutar sendiri sesuai `rotate` di atas.
+  stream:
+    enabled: false
+    url: rtsp://127.0.0.1:8554/front
+    transport: tcp            # tcp: tahan NAT/5G; udp hanya di LAN yang bersih
+    retry_s: 5                # server belum jalan / putus -> coba lagi
+    max_queue: 30             # penuh -> frame dibuang, tunggu keyframe berikutnya
+    ffmpeg: ffmpeg
 
 ui:
   show: true

@@ -46,6 +46,10 @@ class ContinuousRecorder:
         self._thread.start()
 
     # ---------------------------------------------------------------- pipeline thread
+    def wants(self, ts_ms: int) -> bool:
+        """True jika frame pada `ts_ms` akan diambil (pemanggil bisa melewati dekode/rotasi kalau False)."""
+        return self.stopped_reason is None and ts_ms >= self._next_ts
+
     def push(self, img: np.ndarray | None, ts_ms: int) -> None:
         """Dipanggil tiap frame; hanya ~fps frame per detik yang diambil."""
         if img is None or self.stopped_reason is not None or ts_ms < self._next_ts:
