@@ -50,17 +50,22 @@ def _has_display_rotation(ffmpeg: str) -> bool:
 
 
 def ffmpeg_cmd(ffmpeg: str, path: Path, rotate: int = 0, extra_args: list | None = None) -> list[str]:
-    """`rotate` searah jarum jam (sama seperti front_preview.rotate)."""
+    """`rotate` searah jarum jam (sama seperti front_preview.rotate).
+
+    Diuji 2026-11-23: di ffmpeg 4.4 (Jetson) `-metadata rotate=N` dan di ffmpeg baru `-display_rotation N`
+    sama-sama berarti N derajat BERLAWANAN jarum jam saat diputar (ffmpeg autorotate dan OpenCV setuju),
+    jadi keduanya diberi 360 - rotate."""
     rot = int(rotate) % 360
+    ccw = (360 - rot) % 360
     # probesize kecil + analyzeduration 0: SPS sudah cukup; default ffmpeg menahan ~5 s input sebelum menulis
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-use_wallclock_as_timestamps", "1",
            "-probesize", "32768", "-analyzeduration", "0"]
     new_style = rot and _has_display_rotation(ffmpeg)
     if new_style:
-        cmd += ["-display_rotation:v:0", str((360 - rot) % 360)]
+        cmd += ["-display_rotation:v:0", str(ccw)]
     cmd += ["-f", "h264", "-i", "pipe:0", "-c", "copy", "-movflags", "+frag_keyframe+empty_moov+default_base_moof"]
     if rot and not new_style:
-        cmd += ["-metadata:s:v:0", f"rotate={rot}"]
+        cmd += ["-metadata:s:v:0", f"rotate={ccw}"]
     return cmd + list(extra_args or []) + ["-f", "mp4", str(path)]
 
 

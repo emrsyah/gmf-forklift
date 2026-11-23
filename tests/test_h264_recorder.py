@@ -122,7 +122,7 @@ def test_ffmpeg_cmd_rotation_old_and_new_style(monkeypatch):
     monkeypatch.setitem(m._DISPLAY_ROTATION, "ff-new", True)
     old = m.ffmpeg_cmd("ff-old", Path("x.mp4"), 270)
     new = m.ffmpeg_cmd("ff-new", Path("x.mp4"), 270)
-    assert "rotate=270" in old and "-display_rotation:v:0" not in old       # 4.4: tag searah jarum jam
+    assert "rotate=90" in old and "-display_rotation:v:0" not in old        # 4.4: tag juga berlawanan
     i = new.index("-display_rotation:v:0")
     assert new[i + 1] == "90" and i < new.index("-i")                       # baru: opsi input, berlawanan
     assert "-display_rotation:v:0" not in m.ffmpeg_cmd("ff-new", Path("x.mp4"), 0)
