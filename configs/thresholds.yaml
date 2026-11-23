@@ -243,6 +243,11 @@ D10_ppe:
   window_s: 3.0
   ratio: 0.7
   vest_iou_max: 0.3           # torso tanpa vest = tidak ada vest dengan overlap >= ini
+  vest_inside_min: 0.6        # ... atau >= 60% kotak vest berada di dalam torso (vest lebih kecil dari torso)
+  # Torso hanya dinilai jika cukup terlihat. Uji forklift 2026-11-23: kamera tinggi, hanya bahu masuk gambar
+  # -> "tanpa rompi" palsu tiap 20 s. Torso terpotong = rompi tidak bisa dinilai (bukan pelanggaran).
+  torso_min_h_over_w: 0.5     # tinggi/lebar kotak torso
+  torso_min_h_frac: 0.15      # tinggi torso >= 15% tinggi frame
 
 vehicle:
   require_moving: false       # true di operasi nyata; false saat uji KPI (pertanyaan terbuka #2)
