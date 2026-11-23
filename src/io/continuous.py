@@ -138,7 +138,8 @@ class ContinuousRecorder:
                 return False
             wr = X264Writer(self.ffmpeg, path, self.fps, (w, h), self.x264_args, self.nice)
         else:
-            wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*self.codec), self.fps, (w, h))
+            wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*self.codec), self.fps, (w, h),
+                                 len(shape) == 3)
         if not wr.isOpened():
             self.stopped_reason = f"VideoWriter {self.codec} gagal membuka {path}"
             print(f"[rekam] BERHENTI: {self.stopped_reason}", flush=True)
@@ -168,16 +169,17 @@ class ContinuousRecorder:
             if item is None:
                 break
             img, ts_ms = item
-            if img.ndim == 2:            # sumber GRAY8 (Jetson): writer MJPG/x264 butuh BGR
+            if img.ndim == 2 and self.codec != "MJPG":   # sumber GRAY8 (Jetson): x264 (rawvideo bgr24) butuh BGR
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            # MJPG menulis GRAY8 langsung (JPEG 1 channel): tanpa konversi, encode ~separuh, file lebih kecil
             if self.max_side and max(img.shape[:2]) > self.max_side:
                 s = self.max_side / max(img.shape[:2])
                 img = cv2.resize(img, (round(img.shape[1] * s), round(img.shape[0] * s)), interpolation=cv2.INTER_AREA)
             if self._writer is not None and (ts_ms - self._seg_start_ms >= self.segment_s * 1000
-                                             or (img.shape[1], img.shape[0]) != self._size):
+                                             or img.shape != self._size):
                 self._close_segment()
             if self._writer is None:
-                self._size = (img.shape[1], img.shape[0])
+                self._size = img.shape
                 if not self._open(img.shape, ts_ms):
                     break
             try:

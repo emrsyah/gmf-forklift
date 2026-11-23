@@ -59,10 +59,15 @@ def to_epoch_ms(text: str, date: str | None, tz_h: float) -> int:
 
 
 def convert(rows: list[dict], segs: list[Segment], date: str | None, tz_h: float,
-            base: Path | None = None) -> tuple[list[dict], list[str]]:
+            base: Path | None = None, offset_s: float = 0.0) -> tuple[list[dict], list[str]]:
+    """offset_s: jam Jetson - jam pencatat (detik), mis. +3 jika jam Jetson 3 s lebih cepat."""
     out, problems = [], []
+    off_ms = int(round(offset_s * 1000))
     for i, r in enumerate(rows, 1):
-        s_ms, e_ms = to_epoch_ms(r["start"], date, tz_h), to_epoch_ms(r["end"], date, tz_h)
+        s_ms = to_epoch_ms(r["start"], date, tz_h) + off_ms
+        e_ms = to_epoch_ms(r["end"], date, tz_h) + off_ms
+        if e_ms <= s_ms and len(r["end"].strip()) <= 8:   # jam saja, melewati tengah malam
+            e_ms += 24 * 3600 * 1000
         if e_ms <= s_ms:
             problems.append(f"baris {i}: end <= start")
             continue
@@ -73,7 +78,7 @@ def convert(rows: list[dict], segs: list[Segment], date: str | None, tz_h: float
         if e_ms > seg.last_ms:   # skenario melewati batas segmen: potong (sisanya di segmen berikut tidak dinilai)
             problems.append(f"baris {i}: melewati akhir {seg.path.name}, dipotong")
             e_ms = seg.last_ms
-        video = seg.path.relative_to(base) if base else seg.path
+        video = seg.path.resolve().relative_to(base) if base else seg.path
         out.append({
             "video": video.as_posix(),
             "start_s": f"{(s_ms - seg.first_ms) / 1000:.2f}",
@@ -93,6 +98,8 @@ def main() -> None:
     ap.add_argument("--recordings", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--date", default=None, help="YYYY-MM-DD bila kolom jam hanya HH:MM:SS")
+    ap.add_argument("--offset-s", type=float, default=0.0,
+                    help="jam Jetson - jam pencatat (detik); cek dengan tanda sinkron jam di awal sesi")
     a = ap.parse_args()
     tz_h = float(Config.load().runtime.get("timezone_offset_h", 7.0))
     with open(a.times, encoding="utf-8-sig") as f:
@@ -100,7 +107,8 @@ def main() -> None:
     out_path = Path(a.out)
     segs = load_segments(Path(a.recordings))
     out, problems = convert(rows, segs, a.date, tz_h, base=out_path.parent.resolve()
-                            if all(s.path.resolve().is_relative_to(out_path.parent.resolve()) for s in segs) else None)
+                            if all(s.path.resolve().is_relative_to(out_path.parent.resolve()) for s in segs) else None,
+                            offset_s=a.offset_s)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)

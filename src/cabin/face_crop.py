@@ -97,6 +97,10 @@ class CropFace:
         # wajah hilang (menoleh jauh, kamera ditutup, kursi kosong): pencarian (YuNet + full frame) hanya
         # tiap N frame, frame lain langsung "tidak ada wajah". 1 = tiap frame (perilaku lama).
         self.lost_search_every = max(1, int(cfg.get("lost_search_every", 1)))
+        # ... tapi hanya setelah wajah hilang >= sekian detik: hilang 1-2 frame (mis. menunduk sambil pejam,
+        # skenario 7) tetap dicari tiap frame supaya celah tidak melewati toleransi D-02 (face_gap_tolerance_s).
+        self.lost_search_after_ms = 1000 * float(cfg.get("lost_search_after_s", 0.5))
+        self._lost_since_ms: int | None = None
         self._crop: tuple[float, float, float] | None = None    # (cx, cy, sisi) crop aktif
         self._track_box = None              # kotak landmark terakhir (koordinat gambar input)
         self._n = 0
@@ -127,13 +131,20 @@ class CropFace:
 
     def process(self, image_bgr: np.ndarray, ts_ms: int, offset: tuple[int, int] = (0, 0),
                 scale_to=None) -> FaceObs:
-        if self._track_box is None and self._lost_n % self.lost_search_every:
-            self._lost_n += 1                 # sedang hilang dan bukan giliran mencari
+        if (self._track_box is None and self._lost_since_ms is not None
+                and ts_ms - self._lost_since_ms >= self.lost_search_after_ms
+                and self._lost_n % self.lost_search_every):
+            self._lost_n += 1                 # sudah lama hilang dan bukan giliran mencari
             self.last_source = "none"
             self.last_crop_box = None
             return FaceObs(present=False)
         obs = self._process(image_bgr, ts_ms, offset)
-        self._lost_n = 0 if obs.present else self._lost_n + 1
+        if obs.present:
+            self._lost_n, self._lost_since_ms = 0, None
+        else:
+            self._lost_n += 1
+            if self._lost_since_ms is None:
+                self._lost_since_ms = ts_ms
         return obs
 
     def _process(self, image_bgr: np.ndarray, ts_ms: int, offset: tuple[int, int]) -> FaceObs:

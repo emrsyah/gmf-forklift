@@ -5,13 +5,14 @@ menganggur, tetapi kalah prioritas dari MediaPipe/YOLO (K5: waktu deteksi). Di W
 """
 from __future__ import annotations
 
-import os
+import shutil
 import subprocess
 import sys
 
 
 def popen_nice(cmd: list[str], nice: int = 0, **kw) -> subprocess.Popen:
-    if nice and sys.platform.startswith("linux"):
-        n = int(nice)
-        kw["preexec_fn"] = lambda: os.nice(n)
+    # `nice -n N cmd`, bukan preexec_fn: preexec_fn memaksa fork() penuh proses multi-thread (CUDA, MediaPipe)
+    # -> lambat dan tidak aman thread; tanpa preexec_fn Python memakai vfork/posix_spawn.
+    if nice and sys.platform.startswith("linux") and shutil.which("nice"):
+        cmd = ["nice", "-n", str(int(nice)), *cmd]
     return subprocess.Popen(cmd, **kw)

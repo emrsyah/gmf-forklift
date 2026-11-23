@@ -23,6 +23,8 @@ import numpy as np
 
 from src.capture import Frame, WebcamSource
 
+_BAD = object()   # penanda frame rusak (read() melewatinya)
+
 UVCX_GUID = uuid.UUID("a29e7641-de04-47e3-8b2b-f4341aff003b")
 
 # UVCX selector
@@ -258,6 +260,14 @@ class UvcH264WebcamSource(WebcamSource):
     def read(self) -> Optional[Frame]:
         if not self._raw:
             return super().read()
+        for _ in range(int(getattr(self, "max_bad_frames", 30))):   # frame rusak beruntun: loop, bukan rekursi
+            fr = self._read_once()
+            if fr is not _BAD:
+                return fr
+        print("[h264] terlalu banyak frame rusak beruntun", flush=True)
+        return None
+
+    def _read_once(self):
         ok, raw = self.cap.read()
         if not ok or raw is None:
             return None
@@ -268,7 +278,7 @@ class UvcH264WebcamSource(WebcamSource):
             if self.decode:
                 img = decode_jpeg(jpeg)
                 if img is None:
-                    return self.read()                    # frame rusak dari USB: lewati
+                    return _BAD                           # frame rusak dari USB: lewati
             else:
                 img = None
                 meta["jpeg"] = jpeg

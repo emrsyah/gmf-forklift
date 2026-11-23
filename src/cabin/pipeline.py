@@ -215,8 +215,20 @@ class CabinPipeline:
             if not fut.done():
                 return
             self._yolo_pending = None
-            res, ytm = fut.result()
-            self._last_yolo = res
+            try:
+                res, ytm = fut.result()
+            except Exception as e:  # noqa: BLE001 - error YOLO tidak boleh mematikan D-02/D-09 dkk.
+                # hasil lama dibuang (yolo_valid=False -> D-06/D-10 tidak aktif dari data basi); job berikut dicoba lagi
+                self._last_yolo = None
+                self.yolo_errors = getattr(self, "yolo_errors", 0) + 1
+                self.yolo_status = f"error ({self.yolo_errors}x): {type(e).__name__}: {e}"
+                if self.yolo_errors <= 3 or self.yolo_errors % 100 == 0:
+                    print(f"[cabin] YOLO gagal: {self.yolo_status}", flush=True)
+                res, ytm = None, {}
+            else:
+                self._last_yolo = res
+                if self.yolo_status.startswith("error"):
+                    self.yolo_status = "on"
             tm.update(ytm)
         due = (self._yolo_last_submit_ms is None
                or ts_ms - self._yolo_last_submit_ms >= self.yolo_async_min_dt_ms)

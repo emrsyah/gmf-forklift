@@ -65,6 +65,26 @@ def test_async_max_fps_limits_submissions():
     assert 4 <= det.calls <= 6
 
 
+class FailingDetector(SlowDetector):
+    def predict(self, image_bgr, conf=0.25):
+        self.calls += 1
+        raise RuntimeError("cuda error")
+
+
+def test_worker_exception_does_not_kill_loop():
+    cfg = Config.load()
+    y = cfg.runtime["cabin"]["yolo"]
+    y["async"], y["async_max_fps"] = True, 0
+    cfg.runtime["cabin"]["face"]["crop"]["enabled"] = False
+    det = FailingDetector()
+    p = CabinPipeline(cfg.runtime, cfg.thresholds, cfg.events, face_model=FakeFace(), detector=det)
+    for i in range(6):
+        st = p.process(_frame(i))
+        if p._yolo_pending is not None:
+            p._yolo_pending.exception(timeout=5)
+    assert st.yolo is None and det.calls >= 2 and p.yolo_status.startswith("error")
+
+
 class CountDet:
     def __init__(self):
         self.calls = 0
@@ -74,13 +94,16 @@ class CountDet:
         return []
 
 
-def test_lost_face_search_throttled():
+def test_lost_face_search_throttled_after_grace():
     det = CountDet()
-    cf = CropFace(FakeFace(), det, {"lost_search_every": 3})
+    cf = CropFace(FakeFace(), det, {"lost_search_every": 3, "lost_search_after_s": 0.5})
     img = np.zeros((120, 160, 3), np.uint8)
-    for i in range(9):
+    for i in range(16):                                 # 33 ms/frame: 0..495 ms tiap frame dicari (16 frame)
         assert cf.process(img, i * 33).present is False
-    assert det.calls == 3                               # frame 0, 3, 6
+    assert det.calls == 16
+    for i in range(16, 25):                             # sesudah 0,5 s: tiap 3 frame
+        cf.process(img, i * 33)
+    assert det.calls == 16 + 3
 
 
 def test_lost_search_default_every_frame():

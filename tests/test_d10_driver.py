@@ -39,6 +39,18 @@ def test_no_face_falls_back_to_all_people():
     assert interpret(dets, {}, D10, face_box=None, frame_wh=FRAME).no_helmet is True
 
 
+def test_driver_head_kept_when_chin_cut_at_frame_bottom():
+    # wajah di tepi bawah: landmark dagu di luar gambar (y > 720), kotak kepala YOLO terpotong di 720
+    face = (440, 660, 520, 820)                            # tanpa clip: hanya 37% wajah di kotak kepala
+    dets = [det("head_no_helmet", (425, 610, 535, 720))]
+    assert interpret(dets, {}, D10, face_box=face, frame_wh=FRAME).no_helmet is True
+
+
+def test_upper_body_torso_box_including_head_counts():
+    dets = [det("torso", (390, 180, 590, 680))]           # kotak mulai di atas wajah (badan atas + kepala)
+    assert interpret(dets, {}, D10, face_box=FACE, frame_wh=FRAME).no_vest is True
+
+
 def test_helmet_beats_weaker_no_helmet_on_same_head():
     dets = [det("helmet", (425, 170, 535, 300), 0.7), det("head_no_helmet", (430, 175, 535, 300), 0.5)]
     assert interpret(dets, {}, D10, face_box=FACE, frame_wh=FRAME).no_helmet is False

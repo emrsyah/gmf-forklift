@@ -110,6 +110,9 @@ runtime:
   alert:
     type: none            # buzzer GPIO belum dipasang; ganti ke gpio setelah wiring (gpio_pin di runtime.yaml)
   ui:
+    # Jendela lokal (imshow + overlay tiap frame, X11) memakan CPU deteksi; di forklift tidak ada yang melihat
+    # monitor Jetson. Tampilan lewat web :8090 / dashboard. Perlu monitor: live.sh start --show? -> set true.
+    show: false
     fullscreen: false
     web:
       enabled: true         # lihat & kendalikan dari browser laptop: http://IP-JETSON:8090

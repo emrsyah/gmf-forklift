@@ -283,7 +283,7 @@ def main(argv=None):
                         open_events=[op.code] if op is not None else []))
                 n += 1
                 n_log += 1
-                if st.sig.face_present:
+                if st.sig.face_present and a.log_fps:   # tanpa --log-fps tidak pernah dikosongkan -> jangan diisi
                     face_log.append((st.sig.yaw, st.sig.pitch, st.sig.roll, st.sig.openness))
                 el = time.monotonic() - t0
                 if el >= 1.0:

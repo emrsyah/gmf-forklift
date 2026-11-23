@@ -59,6 +59,7 @@ cabin:
       redetect_every: 0         # 0 = detektor hanya saat wajah hilang (pelacakan dari landmark)
       fallback_full: true       # detektor tidak menemukan wajah -> Face Landmarker di full frame (perilaku lama)
       lost_search_every: 1      # wajah hilang -> cari (YuNet + full frame) tiap N frame; 1 = tiap frame
+      lost_search_after_s: 0.5  # ... hanya setelah hilang >= sekian detik (celah pendek tetap dicari tiap frame)
   yolo:
     enabled: true
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)

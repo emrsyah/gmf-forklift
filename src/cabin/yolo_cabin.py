@@ -63,12 +63,13 @@ def is_driver_head(box, face_box, d10: dict) -> bool:
 
 
 def is_driver_torso(box, face_box, d10: dict) -> bool:
-    """Torso pengemudi = di bawah wajah dan pusat wajah (x) dalam rentang torso (diperlebar `margin` x lebar)."""
+    """Torso pengemudi = pusat torso di bawah pusat wajah dan pusat wajah (x) dalam rentang torso
+    (diperlebar `margin` x lebar). Pusat, bukan tepi atas: label 'no vest' sebagian dataset = badan atas + kepala."""
     fx1, fy1, fx2, fy2 = face_box[:4]
     x1, y1, x2, y2 = box
     m = d10.get("driver_torso_x_margin", 0.25) * (x2 - x1)
     cx = (fx1 + fx2) / 2
-    return x1 - m <= cx <= x2 + m and y1 >= fy1 and y2 > fy2
+    return x1 - m <= cx <= x2 + m and (y1 + y2) / 2 > (fy1 + fy2) / 2 and y2 > fy2
 
 
 def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts_ms: int = 0,
@@ -92,9 +93,14 @@ def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts
     torsos = [d for d in dets if d.cls_name == "torso" and d.conf >= ppe_conf
               and torso_judgeable(d.xyxy, frame_h, d10)]
     if d10.get("driver_only", False) and face_box is not None:
-        # hanya kepala/torso milik pengemudi (wajah dari Face Landmarker); orang lain di gambar diabaikan
-        heads = [d for d in heads if is_driver_head(d.xyxy, face_box, d10)]
-        torsos = [d for d in torsos if is_driver_torso(d.xyxy, face_box, d10)]
+        # hanya kepala/torso milik pengemudi (wajah dari Face Landmarker); orang lain di gambar diabaikan.
+        # Landmark dagu yang terpotong tepi bawah jatuh di luar gambar, kotak YOLO tidak -> clip ke frame dulu.
+        fb = face_box[:4]
+        if frame_wh:
+            fb = (max(0.0, fb[0]), max(0.0, fb[1]), min(float(frame_wh[0]), fb[2]), min(float(frame_wh[1]), fb[3]))
+        if fb[2] > fb[0] and fb[3] > fb[1]:
+            heads = [d for d in heads if is_driver_head(d.xyxy, fb, d10)]
+            torsos = [d for d in torsos if is_driver_torso(d.xyxy, fb, d10)]
     no_helmet = bool(heads)
     thr = d10.get("vest_iou_max", 0.3)
     in_min = d10.get("vest_inside_min", 0.6)
