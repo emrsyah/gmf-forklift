@@ -315,6 +315,8 @@ def main(argv=None):
     ap.add_argument("--no-yolo", action="store_true")
     ap.add_argument("--set", action="append", default=[],
                     help="override threshold, mis. D05_distraction.pitch_only_extra_hold_s=1.0")
+    ap.add_argument("--set-runtime", action="append", default=[],
+                    help="override runtime.yaml, mis. cabin.face.crop.enabled=true")
     a = ap.parse_args(argv)
 
     cfg = Config.load()
@@ -323,12 +325,15 @@ def main(argv=None):
     for kv in a.set:
         k, v = kv.split("=", 1)
         set_dotted(cfg.thresholds, k, yaml.safe_load(v))
+    for kv in a.set_runtime:
+        k, v = kv.split("=", 1)
+        set_dotted(cfg.runtime, k, yaml.safe_load(v))
     truth = Path(a.truth)
     s = evaluate(truth, cfg, a.mode, use_yolo=False if a.no_yolo else None)
     when = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = Path(a.out) if a.out else REPO_ROOT / "eval" / "reports" / when
     meta = {"when": when, "truth": str(truth), "mode": a.mode, "simulate_nir": a.simulate_nir,
-            "yolo": not a.no_yolo, "overrides": a.set}
+            "yolo": not a.no_yolo, "overrides": a.set + a.set_runtime}
     p = write_report(s, meta, out)
     print(p.read_text(encoding="utf-8"))
     print(f"\nLaporan: {p}")

@@ -30,6 +30,12 @@ runtime:
     # IMX219 NoIR (tanpa filter IR) di lampu ruangan -> warna magenta. Grayscale + CLAHE: sama dengan
     # preprocessing training YOLO dan dengan kamera NIR + lampu IR nanti di kabin.
     simulate_nir: true
+    face:
+      # Uji forklift 2026-11-23: wajah kecil di tepi bawah -> BlazeFace (jarak selfie) "terlihat 0%".
+      # YuNet + crop sebelum Face Landmarker: snapshot forklift 0% -> 100% wajah (tools/face_bench).
+      # Model: scp models/face/face_detection_yunet_2023mar.onnx (OpenCV >= 4.8 untuk FaceDetectorYN).
+      crop:
+        enabled: true
     yolo:
       # tensorrt_native: TensorRT + cuda-python, tanpa torch. Di Jetson uji torch sistem crash (bus error)
       # pada operasi CUDA yang dipakai NMS Ultralytics, jadi backend `tensorrt` (Ultralytics) tidak bisa dipakai.

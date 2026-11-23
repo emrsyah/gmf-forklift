@@ -42,6 +42,22 @@ cabin:
     yaw_sign: 1
     pitch_sign: 1
     roll_sign: 1
+    # Detektor wajah + crop SEBELUM Face Landmarker (src/cabin/face_crop.py). Untuk wajah kecil / di tepi
+    # gambar / gelap (uji forklift 2026-11-23: "terlihat 0%"). Detektor YuNet (OpenCV, MIT, opencv_zoo):
+    #   models/face/face_detection_yunet_2023mar.onnx  (sha256 8f2383e4dd3cfbb4...2552fa4, 232589 byte)
+    crop:
+      enabled: false
+      detector: yunet
+      yunet_model: models/face/face_detection_yunet_2023mar.onnx
+      det_score: 0.6            # skor minimal YuNet
+      det_max_side: 640         # gambar input detektor diperkecil ke sini
+      min_face_px: 20           # kotak wajah lebih kecil diabaikan (koordinat gambar input)
+      margin: 1.8               # sisi crop = margin x sisi terpanjang kotak wajah
+      out_px: 320               # crop diubah ke ukuran ini sebelum Face Landmarker
+      hold_shift: 0.12          # crop ditahan selama pusat wajah bergeser < 12% sisi crop
+      hold_scale: 0.15          # ... dan ukuran berubah < 15%
+      redetect_every: 0         # 0 = detektor hanya saat wajah hilang (pelacakan dari landmark)
+      fallback_full: true       # detektor tidak menemukan wajah -> Face Landmarker di full frame (perilaku lama)
   yolo:
     enabled: true
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)

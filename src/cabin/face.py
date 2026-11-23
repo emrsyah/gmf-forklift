@@ -106,5 +106,10 @@ class MediaPipeFace:
 def make_face_model(cfg: dict):
     kind = cfg.get("model", "mediapipe")
     if kind == "mediapipe":
-        return MediaPipeFace(cfg)
+        crop = cfg.get("crop") or {}
+        if not crop.get("enabled", False):
+            return MediaPipeFace(cfg)
+        from .face_crop import CropFace, make_face_detector   # detektor + crop dulu (face_crop.py)
+        full = MediaPipeFace(cfg) if crop.get("fallback_full", True) else None
+        return CropFace(MediaPipeFace(cfg), make_face_detector(crop), crop, inner_full=full)
     raise ValueError(f"Model wajah belum tersedia: {kind} (MtDMS direncanakan untuk Fase 2)")
