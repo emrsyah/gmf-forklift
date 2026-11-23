@@ -229,9 +229,27 @@ class ArraySource(FrameSource):
         return f
 
 
+def device_index(device: str) -> int:
+    """`/dev/v4l/by-id/...` (glob boleh) -> nomor /dev/videoN saat ini. Nomor video bisa berubah setelah
+    reboot/colok ulang (Jetson 2026-11-23: C930e pindah video1 -> video0), path by-id tidak."""
+    import glob
+    import os
+    import re
+
+    hits = sorted(glob.glob(device))
+    if not hits:
+        raise RuntimeError(f"Kamera tidak ditemukan: {device}")
+    m = re.search(r"video(\d+)$", os.path.realpath(hits[0]))
+    if not m:
+        raise RuntimeError(f"Bukan perangkat video: {hits[0]}")
+    return int(m.group(1))
+
+
 def make_source(cfg: dict) -> FrameSource:
     """Buat sumber dari blok config `source:` (runtime.yaml)."""
     t = cfg.get("type", "webcam")
+    if t == "webcam" and cfg.get("device"):            # path stabil menang atas index
+        cfg = dict(cfg, index=device_index(cfg["device"]))
     if t == "webcam" and (cfg.get("h264_mux") or {}).get("enabled", False):
         from src.capture.uvch264 import UvcH264WebcamSource   # H.264 dari kamera (C930e), lihat modulnya
         return UvcH264WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),

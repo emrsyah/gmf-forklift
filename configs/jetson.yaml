@@ -53,7 +53,8 @@ runtime:
       track_fps: 10         # = front_preview.detect.fps (umur track ByteTrack dihitung per frame)
     source:
       type: webcam
-      index: 1              # C930e = /dev/video1 (IMX219 = video0 lewat Argus)
+      index: 1              # cadangan; nomor video berubah setelah reboot -> pakai `device`
+      device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_*-video-index0
       api: v4l2
       fourcc: MJPG          # 720p 30 fps (15 fps saat gelap)
       width: 1280
