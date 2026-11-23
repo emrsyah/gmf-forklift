@@ -10,6 +10,7 @@ Fallback ke encoder OpenCV (mp4v) jika ffmpeg tidak ada — catat bahwa mp4v bel
 from __future__ import annotations
 
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -74,6 +75,13 @@ class ClipRecorder:
         self.done_paths: list[Path] = []
         # dipanggil (dari thread encoder) setelah klip selesai: dict info media -> mis. sinks.media
         self.on_done = None
+        # Stempel + resize + JPEG (~6 ms/frame di Jetson) di thread sendiri, bukan di loop deteksi.
+        # Antrean dikuras (join) saat event start/end dan flush, jadi isi klip sama dengan mode sinkron.
+        self._lock = threading.RLock()
+        self._q: queue.Queue | None = None
+        if cfg.get("async_encode", True):
+            self._q = queue.Queue(maxsize=int(cfg.get("encode_queue", 30)))
+            threading.Thread(target=self._encode_loop, name="clip-jpeg", daemon=True).start()
 
     def _encode_jpg(self, img: np.ndarray) -> bytes:
         if img.shape[1] > self.max_w:
@@ -86,26 +94,51 @@ class ClipRecorder:
         """Panggil setiap frame (gambar dengan overlay jika ingin). Disubsample ke fps rekaman."""
         step = 1000.0 / self.fps
         if self._last_keep_ms is not None and ts_ms - self._last_keep_ms < step * 0.95:
-            self._check_pending(ts_ms)
+            if self._q is None:      # mode async: dicek thread encoder setelah frame antrean masuk klip
+                self._check_pending(ts_ms)
             return
         self._last_keep_ms = ts_ms
-        jpg = self._encode_jpg(stamp(img, ts_ms, label or self.label))
-        self.buf.append((ts_ms, jpg))
-        while self.buf and self.buf[0][0] < ts_ms - self.pre_ms:
-            self.buf.popleft()
-        for p in self.pending:
-            p.frames.append((ts_ms, jpg))
-        self._check_pending(ts_ms)
+        if self._q is None:
+            self._add(ts_ms, img, label or self.label)
+            return
+        # antrean penuh -> tunggu (tidak dibuang): replay lebih cepat dari real-time tetap dapat klip utuh,
+        # dan tidak pernah lebih lambat dari encode sinkron
+        self._q.put((ts_ms, img, label or self.label))
+
+    def _encode_loop(self):
+        while True:
+            ts_ms, img, label = self._q.get()
+            try:
+                self._add(ts_ms, img, label)
+            except Exception as e:  # jangan pernah mematikan thread klip
+                print(f"[clips] encode gagal: {e}", flush=True)
+            finally:
+                self._q.task_done()
+
+    def _drain(self):
+        if self._q is not None:
+            self._q.join()
+
+    def _add(self, ts_ms: int, img: np.ndarray, label: str):
+        jpg = self._encode_jpg(stamp(img, ts_ms, label))
+        with self._lock:
+            self.buf.append((ts_ms, jpg))
+            while self.buf and self.buf[0][0] < ts_ms - self.pre_ms:
+                self.buf.popleft()
+            for p in self.pending:
+                p.frames.append((ts_ms, jpg))
+            self._check_pending(ts_ms)
 
     def _check_pending(self, ts_ms: int):
-        ready = [p for p in self.pending if ts_ms >= p.until_ms]
-        if ready:
-            self.threads = [t for t in self.threads if t.is_alive()]
-        for p in ready:
-            self.pending.remove(p)
-            th = threading.Thread(target=self._write_clip, args=(p,), daemon=True)
-            th.start()
-            self.threads.append(th)
+        with self._lock:
+            ready = [p for p in self.pending if ts_ms >= p.until_ms]
+            if ready:
+                self.threads = [t for t in self.threads if t.is_alive()]
+            for p in ready:
+                self.pending.remove(p)
+                th = threading.Thread(target=self._write_clip, args=(p,), daemon=True)
+                th.start()
+                self.threads.append(th)
 
     def paths_for(self, event: dict) -> tuple[Path, Path]:
         d = datetime.fromtimestamp(event["ts_event_ms"] / 1000).strftime("%Y-%m-%d")
@@ -127,20 +160,22 @@ class ClipRecorder:
         """Simpan snapshot sekarang, jadwalkan klip. Mengembalikan path relatif untuk event JSON."""
         snap, clip = self.paths_for(event)
         label = f"{event['code']} {event['level']}"
-        pre = self._pre_condition_jpg(event) if event.get("code") in self.pre_snap_codes else None
+        self._drain()
+        with self._lock:
+            pre = self._pre_condition_jpg(event) if event.get("code") in self.pre_snap_codes else None
+            frames = [f for f in self.buf if f[0] >= event["ts_event_ms"] - self.pre_ms]
+            t_first = frames[0][0] if frames else event["ts_event_ms"]
+            if self.until == "end":
+                until = t_first + self.max_ms           # batas atas; dipendekkan oleh on_event_end
+            else:
+                until = event["ts_event_ms"] + self.post_ms
+            pc = _PendingClip(event, frames, int(until), clip)
+            pc.snap_path = snap
+            self.pending.append(pc)
         if pre is not None:
             snap.write_bytes(pre)
         elif not cv2.imwrite(str(snap), stamp(img, event["ts_event_ms"], label)):
             print(f"[clips] snapshot gagal ditulis: {snap}")
-        frames = list(self.buf)
-        t_first = frames[0][0] if frames else event["ts_event_ms"]
-        if self.until == "end":
-            until = t_first + self.max_ms           # batas atas; dipendekkan oleh on_event_end
-        else:
-            until = event["ts_event_ms"] + self.post_ms
-        pc = _PendingClip(event, frames, int(until), clip)
-        pc.snap_path = snap
-        self.pending.append(pc)
         return {"snapshot_path": self._rel(snap), "clip_path": self._rel(clip),
                 "snapshot_before_condition": pre is not None}
 
@@ -151,9 +186,10 @@ class ClipRecorder:
         """Mode clip_until=end: klip berhenti post_end_s setelah kondisi selesai (tetap <= max_s)."""
         if self.until != "end":
             return
-        for p in self.pending:
-            if p.event.get("event_id") == event.get("event_id"):
-                p.until_ms = min(p.until_ms, int(event["ts_event_ms"] + self.post_end_ms))
+        with self._lock:
+            for p in self.pending:
+                if p.event.get("event_id") == event.get("event_id"):
+                    p.until_ms = min(p.until_ms, int(event["ts_event_ms"] + self.post_end_ms))
 
     def clip_fps(self, frames: list) -> float:
         """fps NYATA klip. Jika pipeline lebih lambat dari fps rekaman (mis. 9 fps di CPU), frame lebih sedikit;
@@ -229,11 +265,14 @@ class ClipRecorder:
 
     def flush(self, timeout: float = 120.0):
         """Tulis semua klip yang masih menunggu (akhir sesi) dan tunggu thread selesai."""
-        for p in list(self.pending):
-            self.pending.remove(p)
-            th = threading.Thread(target=self._write_clip, args=(p,), daemon=True)
-            th.start()
-            self.threads.append(th)
-        for th in self.threads:
+        self._drain()
+        with self._lock:
+            for p in list(self.pending):
+                self.pending.remove(p)
+                th = threading.Thread(target=self._write_clip, args=(p,), daemon=True)
+                th.start()
+                self.threads.append(th)
+            threads = list(self.threads)
+        for th in threads:
             th.join(timeout)
         self.threads = []

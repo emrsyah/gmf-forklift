@@ -20,7 +20,9 @@ def _img(v):
 
 
 def _rec(tmp_path, **kw):
-    cfg = {"pre_s": 2, "post_s": 1, "fps": 10, "width": 160, "clip_until": "end", "post_end_s": 1, "max_s": 6}
+    # sinkron: tes ini memeriksa `pending` di antara push (async == sinkron diuji di test_clips_async)
+    cfg = {"pre_s": 2, "post_s": 1, "fps": 10, "width": 160, "clip_until": "end", "post_end_s": 1, "max_s": 6,
+           "async_encode": False}
     cfg.update(kw)
     return ClipRecorder(cfg, tmp_path)
 
