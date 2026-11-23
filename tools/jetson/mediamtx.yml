@@ -18,6 +18,7 @@ playback: false
 rtmp: false
 hls: false
 srt: false
+moq: false                     # v1.21+: Media-over-QUIC aktif bawaan
 
 rtsp: true
 rtspAddress: :8554

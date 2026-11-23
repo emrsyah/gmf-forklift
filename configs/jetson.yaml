@@ -66,6 +66,12 @@ runtime:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front
       codec: H264           # simpan H.264 kamera apa adanya (MP4 + .ts.csv); MJPG otomatis jika H.264 tidak ada
+    # H.264 kamera di-relay tanpa encode ulang ke MediaMTX (tools/jetson/mediamtx.sh di Jetson).
+    # Tonton: http://IP-JETSON:8889/front (browser, WebRTC) atau rtsp://IP-JETSON:8554/front.
+    # Nanti relay pindah ke server MINERVA: cukup ganti url ke rtsp://<server-minerva>:8554/<path>.
+    stream:
+      enabled: true
+      url: rtsp://127.0.0.1:8554/front
   alert:
     type: none            # buzzer GPIO belum dipasang; ganti ke gpio setelah wiring (gpio_pin di runtime.yaml)
   ui:
