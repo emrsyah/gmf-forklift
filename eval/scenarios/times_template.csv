@@ -1,0 +1,22 @@
+start,end,code,level,peraga,cahaya,scenario
+,,D01,A-02,,,1 pejam mata lambat berulang 60 s
+,,D01,A-02,,,2 sama - kepala tegak
+,,D01,A-02,,,3 sama - peraga lain
+,,D01,A-02,,redup,4 sama - cahaya redup
+,,D02,A-03,,,5 pejam terus 3 s
+,,D02,A-03,,,6 pejam terus 3 s - peraga lain
+,,D02,A-03,,,7 pejam + sedikit menunduk 3 s
+,,D05,A-02,,,8 menoleh kanan 3 s
+,,D05,A-02,,,9 menunduk ke pangkuan 3 s
+,,D05,A-02,,,10 menoleh kiri 3 s
+,,D05,A-02,,,11 menoleh bergantian kanan-kiri tiap 1 s 30 s
+,,D06,A-02,,,12 ponsel posisi mengetik 3 s
+,,D06,A-02,,,13 ponsel di telinga 3 s
+,,D06,A-02,,,14 ponsel setinggi kemudi sebagian tertutup tangan 3 s
+,,D10,A-02,,,15 tanpa helm - rompi terpasang 15 s
+,,D10,A-02,,,16 tanpa rompi - helm terpasang 15 s
+,,D10,A-02,,,17 tanpa helm dan tanpa rompi 15 s
+,,D04,A-03,,,18 kepala tunduk perlahan lalu tegak diulang 30 s
+,,D04,A-03,,,19 kepala miring ke bahu bertahan 5 s
+,,D09,A-03,,,20 lensa ditutup telapak tangan 15 s
+,,NONE,,,,normal - mengemudi biasa (bicara/minum/lihat sekitar wajar) minimal 10 menit
