@@ -239,7 +239,21 @@ def main(argv=None):
                 f_stream = H264RtspPublisher(st_cfg, on_restart=lambda: holder["front"].request_idr())
             except RuntimeError as e:
                 print(f"[stream] tidak aktif: {e}", flush=True)
-        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, [f_h264, f_stream])
+        f_det = None
+        det_cfg = fp_cfg.get("detect", {}) or {}
+        if det_cfg.get("enabled", False):    # YOLO + ByteTrack depan; kotak di kanal web, tanpa event F-xx
+            from src.front.pipeline import FrontPipeline
+            from src.io.front_preview import FrontDetectWorker
+            try:
+                f_det = FrontDetectWorker(FrontPipeline.from_config(cfg), det_cfg.get("fps", 10),
+                                          int(fp_cfg.get("rotate", 0)), web,
+                                          det_cfg.get("log_every_s", 5))
+                print(f"[depan] deteksi aktif: {rt['front']['yolo']['weights']} @ <= {det_cfg.get('fps', 10)} fps",
+                      flush=True)
+            except Exception as e:           # model tidak ada / gagal dimuat: pratinjau tetap jalan
+                print(f"[depan] deteksi tidak aktif: {e!r}", flush=True)
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, [f_h264, f_stream],
+                             detector=f_det)
         holder["front"] = front
     t_log, n_log = time.monotonic(), 0
     face_log: list = []

@@ -19,10 +19,11 @@ log = logging.getLogger(__name__)
 class FrontDetector:
     def __init__(self, yolo_cfg: dict, cam_cfg: dict, person_conf: float, detector=None):
         self.det = detector if detector is not None else make_detector(yolo_cfg)
-        if not hasattr(self.det, "track"):
-            raise ValueError("Kamera depan butuh tracker: pakai backend 'ultralytics' / 'tensorrt' "
-                             "(Ultralytics juga bisa memuat .onnx).")
         self.tracker = yolo_cfg.get("tracker", "bytetrack.yaml")
+        if not hasattr(self.det, "track"):
+            # onnxruntime / tensorrt_native: ByteTrack numpy di atas deteksi backend (tanpa torch CUDA)
+            from src.backends.tracking import ByteTrackDetector
+            self.det = ByteTrackDetector(self.det, self.tracker, float(yolo_cfg.get("track_fps", 30)))
         self.person_class = yolo_cfg.get("person_class", "person")
         cls_cfg = cam_cfg.get("classes", {})
         self.aliases: dict[str, str] = dict(cls_cfg.get("aliases") or {})
@@ -59,6 +60,9 @@ class FrontDetector:
 
     def reset(self) -> None:
         """Reset state ByteTrack (mis. saat ganti video)."""
+        if hasattr(self.det, "reset"):
+            self.det.reset()
+            return
         model = getattr(self.det, "model", None)
         predictor = getattr(model, "predictor", None)
         for t in getattr(predictor, "trackers", None) or []:

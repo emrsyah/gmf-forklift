@@ -42,7 +42,15 @@ runtime:
     # MediaPipe/YOLO, cukup untuk data.
     max_side: 640
   front:
-    enabled: false          # deteksi depan belum ada di Jetson (perlu YOLO TensorRT); kamera dipakai front_preview
+    enabled: false          # pipeline depan terpisah tidak dipakai; deteksi jalan di front_preview.detect
+    # YOLO11n COCO (person) TensorRT FP16, di-build DI Jetson ini (torch CUDA crash -> tensorrt_native):
+    #   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/yolo11n.onnx --saveEngine=models/weights/yolo11n.trt --fp16
+    #   python -m tools.wrap_trt_engine models/weights/yolo11n.trt models/weights/yolo11n.onnx models/weights/yolo11n.engine
+    # ByteTrack numpy (src/backends/tracking.py). Nanti diganti front_best (kelas hangar).
+    yolo:
+      backend: tensorrt_native
+      weights: models/weights/yolo11n.engine
+      track_fps: 10         # = front_preview.detect.fps (umur track ByteTrack dihitung per frame)
     source:
       type: webcam
       index: 1              # C930e = /dev/video1 (IMX219 = video0 lewat Argus)
@@ -65,6 +73,9 @@ runtime:
     enabled: true
     # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
     rotate: 270
+    detect:
+      enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx
+      fps: 10
     recording:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front

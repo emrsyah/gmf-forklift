@@ -1,8 +1,9 @@
-"""Pratinjau + rekaman kamera depan di thread sendiri (tanpa deteksi).
+"""Pratinjau + rekaman kamera depan di thread sendiri, opsional dengan deteksi (FrontDetectWorker).
 
-Dipakai di Jetson selama model depan (TensorRT YOLO + ByteTrack) belum dipasang: kamera depan tetap
-terlihat di tampilan web (:8090, panel kedua) dan direkam untuk pengumpulan data. Thread terpisah supaya
-deteksi kabin tidak ikut melambat. Kalau kamera dicabut, dicoba buka lagi tiap `retry_s`.
+Dipakai di Jetson: kamera depan terlihat di tampilan web (:8090, panel kedua) dan bisa direkam. Dengan
+`front_preview.detect.enabled`, YOLO + ByteTrack berjalan di thread lain (maks. `detect.fps`) dan kotak
+orang/rintangan digambar di kanal web. Event F-xx belum dikirim (belum disepakati HSE GMF).
+Thread terpisah supaya deteksi kabin tidak ikut melambat. Kalau kamera dicabut, dicoba buka lagi tiap `retry_s`.
 
 Hemat CPU: kalau kamera mengirim H.264 (src.capture.uvch264), aliran itu langsung diteruskan ke sink H.264
 (rekaman, streaming) tanpa dekode. JPEG hanya didekode + diputar saat benar-benar dipakai: ada penonton web
@@ -33,15 +34,93 @@ def preview_source_cfg(source_cfg: dict) -> dict:
     return cfg
 
 
+class FrontDetectWorker:
+    """Deteksi depan (FrontPipeline: YOLO + ByteTrack) di thread sendiri, maksimal `fps` per detik.
+
+    Thread kamera hanya menaruh frame terbaru di satu slot (frame lama ditimpa), jadi rekaman/streaming
+    H.264 tidak pernah menunggu model. Hasil digambar dan dikirim ke kanal web "front".
+    """
+
+    def __init__(self, pipe, fps: float, rotate_deg: int = 0, web=None, log_every_s: float = 5.0):
+        self.pipe = pipe
+        self.period_s = 1.0 / max(float(fps), 0.1)
+        self.rotate = rotate_deg
+        self.web = web
+        self.log_every_s = float(log_every_s)
+        self.fps = 0.0
+        self.last = None                    # FrontResult terakhir
+        self.errors = 0
+        self._slot = None
+        self._cv = threading.Condition()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="front-detect", daemon=True)
+        self._thread.start()
+
+    def offer(self, fr) -> None:
+        with self._cv:
+            self._slot = fr
+            self._cv.notify()
+
+    def _take(self):
+        with self._cv:
+            while self._slot is None and not self._stop.is_set():
+                self._cv.wait(0.5)
+            fr, self._slot = self._slot, None
+            return fr
+
+    def _run(self) -> None:
+        import time
+
+        from src.capture import Frame
+        from src.capture.uvch264 import decode_frame
+
+        n, t_log, t_next = 0, time.monotonic(), 0.0
+        while not self._stop.is_set():
+            wait = t_next - time.monotonic()
+            if wait > 0:
+                self._stop.wait(wait)
+            fr = self._take()
+            if fr is None:
+                continue
+            t_next = time.monotonic() + self.period_s
+            try:
+                img = decode_frame(fr)
+                if img is None:
+                    continue
+                img = rotate(img, self.rotate)
+                res = self.pipe.process(Frame(img, fr.ts_ms, fr.index, fr.video_t_s))
+                self.last = res
+                n += 1
+                if self.web is not None and self.web.wants("front"):
+                    self.web.publish(self.pipe.draw(img, res, self.fps), "front")
+            except Exception as e:   # model gagal satu frame: lanjut, jangan matikan kamera depan
+                self.errors += 1
+                if self.errors <= 3 or self.errors % 100 == 0:
+                    print(f"[depan] deteksi gagal ({self.errors}x): {e!r}", flush=True)
+            dt = time.monotonic() - t_log
+            if dt >= self.log_every_s:
+                self.fps = n / dt
+                n_people = sum(1 for t in (self.last.tracks if self.last else []) if t.cls == "person")
+                print(f"[fps-depan] {self.fps:5.1f} FPS | orang {n_people}", flush=True)
+                n, t_log = 0, time.monotonic()
+
+    def close(self, timeout_s: float = 3.0) -> None:
+        self._stop.set()
+        with self._cv:
+            self._cv.notify()
+        self._thread.join(timeout_s)
+
+
 class FrontPreview:
     def __init__(self, source_cfg: dict, cfg: dict, web=None, recorder=None, h264_sinks=None,
-                 source_factory=None):
+                 source_factory=None, detector: FrontDetectWorker | None = None):
         self.source_cfg = preview_source_cfg(source_cfg)
         self.rotate = int(cfg.get("rotate", 0))
         self.retry_s = float(cfg.get("retry_s", 5))
         self.web = web
         self.recorder = recorder            # MJPG (cuplik ~fps); cadangan kalau kamera tidak mengirim H.264
         self.h264_sinks = [s for s in (h264_sinks or []) if s is not None]   # rekaman / streaming H.264
+        self.detector = detector            # ada -> worker yang mengisi kanal web (gambar + kotak deteksi)
         self.frames = 0
         self.decoded = 0                    # berapa frame yang benar-benar didekode (diagnosis CPU)
         self.connected = False
@@ -69,7 +148,9 @@ class FrontPreview:
         if h264_recording:
             self._log_mode("H.264 dari kamera")
         need_rec = not h264_recording and self.recorder is not None and self.recorder.wants(fr.ts_ms)
-        need_web = self.web is not None and self.web.wants("front")
+        if self.detector is not None:
+            self.detector.offer(fr)         # worker mendekode, mendeteksi, dan mengirim ke web
+        need_web = self.detector is None and self.web is not None and self.web.wants("front")
         if need_rec or need_web:
             img = decode_frame(fr)
             if img is None:
@@ -121,6 +202,8 @@ class FrontPreview:
     def close(self, timeout_s: float = 3.0) -> None:
         self._stop.set()
         self._thread.join(timeout_s)
+        if self.detector is not None:
+            self.detector.close(timeout_s)
         for rec in [self.recorder, *self.h264_sinks]:
             if rec is not None:
                 rec.close()

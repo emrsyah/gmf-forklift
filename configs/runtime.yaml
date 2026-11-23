@@ -225,6 +225,12 @@ front_preview:
   label: Kamera depan
   rotate: 0                 # 0/90/180/270 searah jarum jam, sesuai cara kamera dipasang
   retry_s: 5                # buka ulang kamera tiap 5 s jika tercabut
+  # Deteksi depan (front.yolo + ByteTrack) di thread sendiri; kotak digambar di kanal web "front".
+  # Event F-01..F-03 tetap tidak dikirim (events.yaml front_events_enabled, belum disepakati HSE GMF).
+  detect:
+    enabled: false
+    fps: 10                 # batas atas inferensi depan; frame kamera di antaranya dilewati
+    log_every_s: 5          # baris "[fps-depan] N FPS" di log (dibaca agent MINERVA -> fpsForward)
   recording:
     enabled: false
     dir: recordings/front
