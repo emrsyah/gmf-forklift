@@ -274,6 +274,14 @@ def main(argv=None):
                 el = time.monotonic() - t0
                 if el >= 1.0:
                     fps, n, t0 = n / el, 0, time.monotonic()
+                    if web is not None:
+                        op = pipe.decision.open
+                        web.status = {
+                            "ts_ms": now_ms, "device_id": rt.get("device_id", "laptop-dev"),
+                            "calibration": pipe.calibration.status, "face_present": bool(st.sig.face_present),
+                            "camera_ok": not st.blocked_frame, "fps": round(fps, 1), "yolo": pipe.yolo_status,
+                            "open_event": op.code if op is not None else None,
+                        }
                 if a.log_fps and time.monotonic() - t_log >= a.log_fps:
                     dt = time.monotonic() - t_log
                     tm = " ".join(f"{k} {v:.0f}ms" for k, v in st.timings_ms.items())

@@ -1,4 +1,5 @@
 """Tampilan browser: halaman, stream MJPEG, dan tombol hotkey masuk ke antrean."""
+import json
 import queue
 import socket
 import time
@@ -56,5 +57,10 @@ def test_page_stream_and_keys():
         except urllib.error.HTTPError as e:
             assert e.code == 400
         assert q.empty()
+
+        assert json.loads(urllib.request.urlopen(base + "/status", timeout=5).read()) == {}
+        v.status = {"calibration": "terkalibrasi", "fps": 21.0}
+        st = json.loads(urllib.request.urlopen(base + "/status", timeout=5).read())
+        assert st == {"calibration": "terkalibrasi", "fps": 21.0}
     finally:
         v.close()

@@ -9,6 +9,7 @@ Jangan diekspos ke internet (kebijakan privasi klip wajah = pertanyaan terbuka #
 """
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -64,6 +65,8 @@ class WebView:
         self._labels: dict[str, str] = {"cabin": "Kamera kabin"}
         self._viewers: dict[str, int] = {}     # koneksi stream aktif per kanal; 0 -> tidak perlu encode JPEG
         self._cond = threading.Condition()
+        # diganti utuh (bukan diubah di tempat) oleh loop utama -> aman dibaca thread HTTP
+        self.status: dict = {}
         view = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -84,6 +87,15 @@ class WebView:
                                        fig_max="100%" if len(chans) == 1 else "50%").encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif path == "/status":
+                    # untuk agen MINERVA: status kalibrasi dsb. (tombol "kalibrasi ulang" = POST /key?k=c)
+                    body = json.dumps(view.status).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Cache-Control", "no-cache")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
