@@ -94,9 +94,13 @@ class CropFace:
         self.hold_shift = float(cfg.get("hold_shift", 0.12))   # geser pusat < 12% sisi -> crop ditahan
         self.hold_scale = float(cfg.get("hold_scale", 0.15))   # ukuran berubah < 15% -> crop ditahan
         self.redetect_every = int(cfg.get("redetect_every", 0))  # 0 = detektor hanya saat wajah hilang
+        # wajah hilang (menoleh jauh, kamera ditutup, kursi kosong): pencarian (YuNet + full frame) hanya
+        # tiap N frame, frame lain langsung "tidak ada wajah". 1 = tiap frame (perilaku lama).
+        self.lost_search_every = max(1, int(cfg.get("lost_search_every", 1)))
         self._crop: tuple[float, float, float] | None = None    # (cx, cy, sisi) crop aktif
         self._track_box = None              # kotak landmark terakhir (koordinat gambar input)
         self._n = 0
+        self._lost_n = 0                    # frame berturut-turut tanpa wajah
         self.last_source = "none"           # track | detector | full | none (diagnosis/overlay)
         self.last_crop_box = None           # (x1, y1, x2, y2) crop terakhir, koordinat gambar input
 
@@ -123,6 +127,16 @@ class CropFace:
 
     def process(self, image_bgr: np.ndarray, ts_ms: int, offset: tuple[int, int] = (0, 0),
                 scale_to=None) -> FaceObs:
+        if self._track_box is None and self._lost_n % self.lost_search_every:
+            self._lost_n += 1                 # sedang hilang dan bukan giliran mencari
+            self.last_source = "none"
+            self.last_crop_box = None
+            return FaceObs(present=False)
+        obs = self._process(image_bgr, ts_ms, offset)
+        self._lost_n = 0 if obs.present else self._lost_n + 1
+        return obs
+
+    def _process(self, image_bgr: np.ndarray, ts_ms: int, offset: tuple[int, int]) -> FaceObs:
         box, src = self._target_box(image_bgr)
         if box is None:
             self._crop = None

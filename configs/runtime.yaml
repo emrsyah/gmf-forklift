@@ -58,6 +58,7 @@ cabin:
       hold_scale: 0.15          # ... dan ukuran berubah < 15%
       redetect_every: 0         # 0 = detektor hanya saat wajah hilang (pelacakan dari landmark)
       fallback_full: true       # detektor tidak menemukan wajah -> Face Landmarker di full frame (perilaku lama)
+      lost_search_every: 1      # wajah hilang -> cari (YuNet + full frame) tiap N frame; 1 = tiap frame
   yolo:
     enabled: true
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)
@@ -69,6 +70,10 @@ cabin:
     # Dengan input RGB, model cabin_v0 memberi 'phone' palsu (mis. dasi). none = pakai gambar apa adanya.
     preprocess: nir         # nir | none
     every_n_frames: 2
+    # async: frame tidak menunggu YOLO, hasil terbaru dipakai (D-06 3 s / D-10 15 s cukup lambat).
+    # Hanya untuk live: hasil bergantung waktu, jadi replay harness tetap pakai false (deterministik).
+    async: false
+    async_max_fps: 5        # batas laju YOLO di mode async (0 = secepat mungkin); every_n_frames diabaikan
     class_names: [phone, helmet, head_no_helmet, vest, torso]
     providers: [CPUExecutionProvider]
 

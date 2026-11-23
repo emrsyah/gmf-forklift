@@ -78,8 +78,16 @@ class CabinPipeline:
         d09 = thresholds.get("D09_camera_block", {})
         self.partial_block = PartialBlock(d09.get("partial"), d09.get("mean_min", 15), d09.get("mean_max", 240))
         # cabin.yolo.parallel: YOLO di thread sendiri, paralel dengan MediaPipe (satu thread -> urutan tetap)
+        # cabin.yolo.async: frame TIDAK menunggu YOLO; hasil terbaru dipakai sampai hasil baru selesai.
+        #   Hanya untuk live (hasil bergantung waktu); replay `fast` tetap deterministik dengan async: false.
+        #   async_max_fps: batas laju YOLO (0 = secepat GPU) supaya CPU (NMS, CLAHE) tidak direbut dari MediaPipe.
+        ycfg = cab.get("yolo", {})
+        self.yolo_async = bool(ycfg.get("async", False))
+        self.yolo_async_min_dt_ms = 1000.0 / ycfg["async_max_fps"] if ycfg.get("async_max_fps") else 0.0
+        self._yolo_pending = None           # Future yang sedang jalan (mode async)
+        self._yolo_last_submit_ms: int | None = None
         self._yolo_pool = None
-        if self.detector is not None and cab.get("yolo", {}).get("parallel", True):
+        if self.detector is not None and (ycfg.get("parallel", True) or self.yolo_async):
             from concurrent.futures import ThreadPoolExecutor
             self._yolo_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yolo")
         self._n = 0
@@ -104,13 +112,11 @@ class CabinPipeline:
         # YOLO (GPU) tidak bergantung pada hasil wajah -> dikirim ke thread pekerja SEBELUM MediaPipe (CPU),
         # hasilnya diambil sesudahnya. Input sama persis dengan mode berurutan -> deteksi identik.
         yolo_job = None
-        if self.detector is not None and (self._n % self.yolo_every == 0 or self._last_yolo is None):
-            yolo_in = roi_img
-            if self.cab.get("yolo", {}).get("preprocess", "nir") == "nir" and not self.simulate_nir:
-                # sama dengan training (Tech Spec bag. 5): grayscale 3 channel + CLAHE
-                yolo_in = simulate_nir(roi_img, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
-            det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
-                           self.th.get("D10_ppe", {}).get("conf", 0.40))
+        det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
+                       self.th.get("D10_ppe", {}).get("conf", 0.40))
+        if (self.detector is not None and not self.yolo_async
+                and (self._n % self.yolo_every == 0 or self._last_yolo is None)):
+            yolo_in = self._yolo_input(roi_img)
             if self._yolo_pool is not None:
                 fut = self._yolo_pool.submit(self._predict_timed, yolo_in, det_conf)
             else:
@@ -129,29 +135,18 @@ class CabinPipeline:
 
         yolo = None
         if self.detector is not None:
-            if yolo_job is not None:
+            face_box = face_box_from_landmarks(obs.landmarks_px) if obs.present else None
+            yaw = obs.yaw_raw if obs.present else None
+            wh = (img.shape[1], img.shape[0])
+            if self.yolo_async:
+                self._yolo_async_step(roi_img, det_conf, off, face_box, yaw, wh, frame.ts_ms, tm)
+            elif yolo_job is not None:
                 t2 = time.perf_counter()
                 yolo_in, det_conf, fut = yolo_job
                 dets, tm["yolo_gpu"] = fut.result() if hasattr(fut, "result") else fut
                 tm["yolo_wait"] = (time.perf_counter() - t2) * 1000
-                face_box = face_box_from_landmarks(obs.landmarks_px) if obs.present else None
-                if self.phone_crop.enabled:
-                    # pass kedua: ponsel di potongan area pengemudi (koordinat ROI, sama dengan `dets`)
-                    fb_roi = None if face_box is None else (face_box[0] - off[0], face_box[1] - off[1],
-                                                            face_box[2] - off[0], face_box[3] - off[1])
-                    t3 = time.perf_counter()
-                    dets = self.phone_crop.run(self.detector, yolo_in, dets, fb_roi, frame.ts_ms, det_conf)
-                    if self.phone_crop.last_box is not None:
-                        tm["crop"] = (time.perf_counter() - t3) * 1000
-                if off != (0, 0):
-                    for d in dets:
-                        x1, y1, x2, y2 = d.xyxy
-                        d.xyxy = (x1 + off[0], y1 + off[1], x2 + off[0], y2 + off[1])
-                self._last_yolo = interpret(
-                    dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
-                    phone_filter=self.phone_filter, ts_ms=frame.ts_ms,
-                    face_box=face_box,
-                    yaw=obs.yaw_raw if obs.present else None, frame_wh=(img.shape[1], img.shape[0]))
+                self._last_yolo = self._yolo_post(dets, yolo_in, det_conf, off, face_box, yaw, wh,
+                                                  frame.ts_ms, tm)
                 tm["yolo"] = tm["yolo_gpu"] + (time.perf_counter() - t2) * 1000 - tm["yolo_wait"]
             yolo = self._last_yolo
         self._n += 1
@@ -179,6 +174,57 @@ class CabinPipeline:
         top = min(active, key=self.decision.rank) if active else None
         tm["total"] = (time.perf_counter() - t0) * 1000
         return CabinState(frame, img, obs, sig, stats, blocked, yolo, active, top, actions, tm)
+
+    def _yolo_input(self, roi_img: np.ndarray) -> np.ndarray:
+        if self.cab.get("yolo", {}).get("preprocess", "nir") == "nir" and not self.simulate_nir:
+            # sama dengan training (Tech Spec bag. 5): grayscale 3 channel + CLAHE
+            return simulate_nir(roi_img, self.cab.get("clahe_clip", 2.0), self.cab.get("clahe_tile", 8))
+        return roi_img
+
+    def _yolo_post(self, dets, yolo_in, det_conf, off, face_box, yaw, wh, ts_ms, tm) -> CabinDetections:
+        """Setelah prediksi: pass ponsel di crop pengemudi, offset ROI -> frame, interpretasi D-06/D-10."""
+        if self.phone_crop.enabled:
+            # pass kedua: ponsel di potongan area pengemudi (koordinat ROI, sama dengan `dets`)
+            fb_roi = None if face_box is None else (face_box[0] - off[0], face_box[1] - off[1],
+                                                    face_box[2] - off[0], face_box[3] - off[1])
+            t3 = time.perf_counter()
+            dets = self.phone_crop.run(self.detector, yolo_in, dets, fb_roi, ts_ms, det_conf)
+            if self.phone_crop.last_box is not None:
+                tm["crop"] = (time.perf_counter() - t3) * 1000
+        if off != (0, 0):
+            for d in dets:
+                x1, y1, x2, y2 = d.xyxy
+                d.xyxy = (x1 + off[0], y1 + off[1], x2 + off[0], y2 + off[1])
+        return interpret(dets, self.th.get("D06_phone", {}), self.th.get("D10_ppe", {}),
+                         phone_filter=self.phone_filter, ts_ms=ts_ms, face_box=face_box, yaw=yaw, frame_wh=wh)
+
+    def _yolo_job(self, roi_img, det_conf, off, face_box, yaw, wh, ts_ms):
+        """Satu putaran YOLO lengkap di thread pekerja (mode async). Satu pekerja -> PhoneFilter tetap berurutan."""
+        tm = {}
+        yolo_in = self._yolo_input(roi_img)
+        dets, tm["yolo_gpu"] = self._predict_timed(yolo_in, det_conf)
+        t = time.perf_counter()
+        res = self._yolo_post(dets, yolo_in, det_conf, off, face_box, yaw, wh, ts_ms, tm)
+        tm["yolo"] = tm["yolo_gpu"] + (time.perf_counter() - t) * 1000
+        return res, tm
+
+    def _yolo_async_step(self, roi_img, det_conf, off, face_box, yaw, wh, ts_ms, tm):
+        """Ambil hasil yang sudah selesai (tanpa menunggu), lalu kirim frame ini jika pekerja kosong."""
+        fut = self._yolo_pending
+        if fut is not None:
+            if not fut.done():
+                return
+            self._yolo_pending = None
+            res, ytm = fut.result()
+            self._last_yolo = res
+            tm.update(ytm)
+        due = (self._yolo_last_submit_ms is None
+               or ts_ms - self._yolo_last_submit_ms >= self.yolo_async_min_dt_ms)
+        if due:
+            self._yolo_last_submit_ms = ts_ms
+            # salinan: frame berikutnya bisa menimpa buffer kamera saat pekerja masih membaca
+            self._yolo_pending = self._yolo_pool.submit(self._yolo_job, roi_img.copy(), det_conf, off,
+                                                        face_box, yaw, wh, ts_ms)
 
     def _predict_timed(self, image: np.ndarray, conf: float):
         t = time.perf_counter()

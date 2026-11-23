@@ -36,7 +36,10 @@ runtime:
       # Model: scp models/face/face_detection_yunet_2023mar.onnx (OpenCV >= 4.8 untuk FaceDetectorYN).
       crop:
         enabled: true
+        lost_search_every: 3    # wajah hilang (menoleh, D-09, kursi kosong): cari tiap 3 frame (~100 ms)
     yolo:
+      async: true               # loop wajah tidak menunggu YOLO (D-06/D-10 lambat, cukup ~10 Hz)
+      async_max_fps: 10
       # tensorrt_native: TensorRT + cuda-python, tanpa torch. Di Jetson uji torch sistem crash (bus error)
       # pada operasi CUDA yang dipakai NMS Ultralytics, jadi backend `tensorrt` (Ultralytics) tidak bisa dipakai.
       # Engine di-build DI Jetson ini:
