@@ -56,9 +56,14 @@ class UF:
             self.p[max(ra, rb)] = min(ra, rb)
 
 
-def _hashes(rows: list[dict], images_dir: Path, size: int) -> dict[str, tuple[int, str]]:
+def _hashes(rows: list[dict], images_dir: Path, size: int, skip: set[str] | None = None) -> dict[str, tuple[int, str]]:
+    """skip = sumber tanpa dHash (split.dhash.skip_sources): kamera tetap yang sama untuk semua orang (mis. DMD)
+    membuat frame orang berbeda near-duplicate -> semua orang tergabung jadi satu grup; grup regex per orang
+    sudah cukup untuk sumber seperti itu."""
     out = {}
     for r in rows:
+        if skip and r["source"] in skip:
+            continue
         h = dhash(images_dir / r["file"], size)
         if h is not None:
             out[r["file"]] = (h, r["group"])
@@ -104,8 +109,9 @@ def assign(rows: list[dict], images_dir: Path, cfg: dict) -> dict[str, str]:
     dh = scfg.get("dhash", {})
     links: dict[str, set[str]] = defaultdict(set)   # grup baru -> file lama near-duplicate
     if dh.get("enabled"):
-        hn = _hashes(new, images_dir, int(dh["size"]))
-        ho = _hashes(old, images_dir, int(dh["size"]))
+        skip = set(dh.get("skip_sources") or [])
+        hn = _hashes(new, images_dir, int(dh["size"]), skip)
+        ho = _hashes(old, images_dir, int(dh["size"]), skip)
         allh = {**{f: (h, "N" + g) for f, (h, g) in hn.items()}, **{f: (h, "O" + g) for f, (h, g) in ho.items()}}
         n_new = n_link = 0
         for a, b in _near_pairs(allh, dh):
@@ -150,7 +156,7 @@ def _assign_core(rows: list[dict], images_dir: Path, cfg: dict) -> dict[str, str
         uf.find(r["group"])
     dh = scfg.get("dhash", {})
     if dh.get("enabled"):
-        hashes = _hashes(rows, images_dir, int(dh["size"]))
+        hashes = _hashes(rows, images_dir, int(dh["size"]), set(dh.get("skip_sources") or []))
         merged = 0
         for a, b in _near_pairs(hashes, dh):
             ga, gb = hashes[a][1], hashes[b][1]

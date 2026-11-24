@@ -70,6 +70,10 @@ split:
     size: 8                             # dHash 8x8 = 64 bit
     max_hamming: 6                      # <= ini dianggap near-duplicate -> satu grup
     bands: 4                            # LSH: 4 pita x 16 bit
+    # Sumber dengan kamera tetap yang sama untuk semua orang: frame orang berbeda terlihat near-duplicate dan
+    # dHash merangkai semua orang jadi satu grup (cabin_v3 build 1: 14 subjek DMD -> 1 grup -> semua train).
+    # Split per orang lewat regex grup di class map sudah mencegah kebocoran.
+    skip_sources: [dmd_phone]
   hardlink: true                        # materialisasi split dengan hardlink (hemat disk)
   # Sumber cabin_v1: dibagi dengan algoritma yang sama HANYA di antara mereka -> split identik dengan
   # cabin_v1 (test v1 tetap tidak pernah dilatih). Sumber baru ditempel tanpa memindahkan file lama.
