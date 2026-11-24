@@ -84,8 +84,16 @@ runtime:
       width: 1280
       height: 720
       fps: 30
-      autofocus: null       # biarkan bawaan kamera sampai dikalibrasi di posisi pasang final
+      autofocus: null       # lewat v4l2_controls (CAP_PROP_FOCUS OpenCV tidak jelas skalanya di V4L2)
       focus: null
+      # Uji 2026-11-24: gambar kadang blur = autofocus kontinu "berburu"; listrik Indonesia 50 Hz (bawaan 60 Hz
+      # -> kedip lampu); dynamic framerate memperpanjang eksposur saat redup (motion blur). Fokus 0 = jauh
+      # (C930e: tajam dari ~1 m sampai tak hingga), cocok untuk jalur forklift 2-10 m. Urutan penting.
+      v4l2_controls:
+        focus_automatic_continuous: 0
+        focus_absolute: 0
+        power_line_frequency: 1        # 50 Hz
+        exposure_dynamic_framerate: 0
       # Uji 2026-11-23: C930e di Jetson mengirim H.264 1280x720 Constrained Baseline tersisip di MJPG,
       # ~2.7 Mbps vs ~12 Mbps MJPG; dipakai rekaman tanpa encode ulang.
       h264_mux:

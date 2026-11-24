@@ -256,6 +256,26 @@ def device_index(device: str) -> int:
     return int(m.group(1))
 
 
+def v4l2_ctl_args(controls: dict | None) -> list[list[str]]:
+    """Satu panggilan --set-ctrl per kontrol, urut seperti di config (mis. autofocus mati sebelum focus_absolute)."""
+    return [["--set-ctrl", f"{k}={int(v)}"] for k, v in (controls or {}).items()]
+
+
+def apply_v4l2_controls(index: int, controls: dict | None) -> None:
+    """Kontrol kamera UVC lewat v4l2-ctl sesudah kamera dibuka (membuka kamera bisa mengembalikan nilai bawaan).
+    Hanya Linux; kontrol yang gagal dicatat, kamera tetap jalan."""
+    import shutil
+    import subprocess
+    import sys
+
+    if not controls or not sys.platform.startswith("linux") or not shutil.which("v4l2-ctl"):
+        return
+    for args in v4l2_ctl_args(controls):
+        r = subprocess.run(["v4l2-ctl", "-d", f"/dev/video{index}", *args], capture_output=True, text=True, timeout=5)
+        if r.returncode != 0:
+            print(f"[capture] v4l2 {args[1]} gagal: {r.stderr.strip()[:120]}", flush=True)
+
+
 def make_source(cfg: dict) -> FrameSource:
     """Buat sumber dari blok config `source:` (runtime.yaml)."""
     t = cfg.get("type", "webcam")
@@ -263,13 +283,17 @@ def make_source(cfg: dict) -> FrameSource:
         cfg = dict(cfg, index=device_index(cfg["device"]))
     if t == "webcam" and (cfg.get("h264_mux") or {}).get("enabled", False):
         from src.capture.uvch264 import UvcH264WebcamSource   # H.264 dari kamera (C930e), lihat modulnya
-        return UvcH264WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
-                                   cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc", "MJPG"),
-                                   cfg.get("autofocus"), cfg.get("focus"), cfg.get("h264_mux"))
+        src = UvcH264WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
+                                  cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc", "MJPG"),
+                                  cfg.get("autofocus"), cfg.get("focus"), cfg.get("h264_mux"))
+        apply_v4l2_controls(cfg.get("index", 0), cfg.get("v4l2_controls"))
+        return src
     if t == "webcam":
-        return WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
-                            cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc"),
-                            cfg.get("autofocus"), cfg.get("focus"))
+        src = WebcamSource(cfg.get("index", 0), cfg.get("width"), cfg.get("height"),
+                           cfg.get("fps"), cfg.get("api", "auto"), cfg.get("fourcc"),
+                           cfg.get("autofocus"), cfg.get("focus"))
+        apply_v4l2_controls(cfg.get("index", 0), cfg.get("v4l2_controls"))
+        return src
     if t == "file":
         return VideoFileSource(cfg["path"], realtime=cfg.get("realtime", True),
                                start_epoch_ms=cfg.get("start_epoch_ms"))
