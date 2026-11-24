@@ -107,6 +107,10 @@ def main() -> None:
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default="training/runs/front_v1/gate_vs_coco.md")
+    # front_v2 vs front_v1: --base front_v1.pt --gate person,obstacle --tol 0.01 --min-ap50 box=0.5
+    ap.add_argument("--gate", default="person,obstacle", help="kelas yang AP50-nya tidak boleh turun vs base")
+    ap.add_argument("--tol", type=float, default=0.0, help="toleransi penurunan AP50 kelas --gate")
+    ap.add_argument("--min-ap50", default="", help="ambang AP50 mutlak untuk kelas baru, mis. box=0.5,obstacle=0.6")
     a = ap.parse_args()
 
     d = yaml.safe_load(rpath(a.data).read_text(encoding="utf-8"))
@@ -132,12 +136,17 @@ def main() -> None:
         b, n = base[c], new[c]
         rows.append(f"| {c} | {n['n_gt']} | {f(b['ap50'])} | {f(n['ap50'])} | {f(b['recall'])} | {f(n['recall'])} | "
                     f"{f(b['precision'])} | {f(n['precision'])} |")
-    gate = [c for c in ("person", "obstacle") if new[c]["ap50"] is not None and base[c]["ap50"] is not None]
-    passed = all(new[c]["ap50"] >= base[c]["ap50"] for c in gate)
-    txt = (f"# Gerbang front_best vs YOLO11n COCO ({a.split}, {len(imgs)} gambar)\n\n"
+    gate = [c for c in a.gate.split(",") if c and new[c]["ap50"] is not None and base[c]["ap50"] is not None]
+    mins = {k: float(v) for k, v in (x.split("=") for x in a.min_ap50.split(",") if x)}
+    rel_ok = all(new[c]["ap50"] >= base[c]["ap50"] - a.tol for c in gate)
+    abs_ok = all(new[c]["ap50"] is not None and new[c]["ap50"] >= v for c, v in mins.items())
+    passed = rel_ok and abs_ok
+    txt = (f"# Gerbang {a.new} vs {a.base} ({a.split}, {len(imgs)} gambar)\n\n"
            f"Recall/presisi pada ambang runtime {conf_thr}. COCO dipetakan lewat alias runtime.\n\n"
            + "\n".join(rows)
-           + f"\n\nGerbang (AP50 baru >= COCO untuk {gate}): **{'LULUS' if passed else 'GAGAL'}**\n"
+           + f"\n\nGerbang: AP50 baru >= base - {a.tol} untuk {gate} ({'ya' if rel_ok else 'TIDAK'})"
+           + (f"; AP50 mutlak {mins} ({'ya' if abs_ok else 'TIDAK'})" if mins else "")
+           + f" -> **{'LULUS' if passed else 'GAGAL'}**\n"
            "Catatan: split test = data publik (label pseudo teacher COCO ikut di sini), bukan rekaman simulasi kita.\n")
     out = rpath(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)

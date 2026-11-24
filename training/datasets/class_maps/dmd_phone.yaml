@@ -1,0 +1,22 @@
+# DMD distraksi (frame + kotak ponsel auto-label YOLO-World) -> kelas kabin (cabin_v3).
+# dmd_to_yolo.py menulis satu kelas upstream: "phone". Pengemudi DMD tidak memakai helm/rompi:
+# kepala -> head_no_helmet dan torso dari pose-fill (benar untuk data ini).
+source: dmd_phone
+
+map:
+  phone: [phone]
+
+labelled: [phone]
+subsets: []
+
+derive:
+  torso_from_pose: true
+  head_from_pose: true
+  torso_from_person: []
+
+group:
+  # stem: "<grup>_<subjek>_<sesi>_<kamera>_f<frame>", mis. "gA_1_s2_body_f001234" -> satu subjek = satu grup,
+  # jadi pengemudi di split test tidak pernah dilihat saat training (aturan kerja 6: split per orang).
+  regex:
+    - '^(?P<g>g[A-Z]_\d+)_'
+  whole_source: false

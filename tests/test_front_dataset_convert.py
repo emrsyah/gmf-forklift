@@ -50,7 +50,17 @@ def img(path: Path, w: int, h: int, seed: int) -> Path:
 
 # ------------------------------------------------------------------ konfigurasi
 def test_class_order_matches_spec():
-    assert OURS == ["person", "forklift", "pallet_jack", "gse_vehicle", "aircraft_part", "ladder_stand", "obstacle"]
+    # front_v2: `box` (kardus) di akhir -> ID kelas front_v1 tidak bergeser
+    assert OURS == ["person", "forklift", "pallet_jack", "gse_vehicle", "aircraft_part", "ladder_stand", "obstacle",
+                    "box"]
+
+
+def test_cardboard_group_regex_keeps_augmented_copies_together():
+    import re
+    rx = re.compile(cmap("cardboard_box3")["group"]["regex"][0])
+    a = rx.match("train__1-1_jpg.rf.a907dda9bcb91735254ac120ea60866a").group("g")
+    b = rx.match("train__1-1_jpg.rf.0123456789abcdef0123456789abcdef").group("g")
+    assert a == b == "1-1_jpg"
 
 
 def test_apron_class_map_covers_all_43_names():

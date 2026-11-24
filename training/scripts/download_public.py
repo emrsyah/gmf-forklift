@@ -460,7 +460,34 @@ def dl_roboflow(name: str, s: dict, root: Path, limit: int | None, dcfg: dict, k
     return n
 
 
+def dl_local_yolo(name: str, s: dict, root: Path, limit: int | None, dcfg: dict, keep_archives: bool) -> int:
+    """Folder YOLO lokal (mis. frame DMD hasil training/scripts/dmd_to_yolo.py): <dir>/images, <dir>/labels,
+    <dir>/classes.txt. Folder tidak ada -> sumber dilewati (bukan error)."""
+    d = rpath(s["local_dir"])
+    if not (d / "classes.txt").exists():
+        print(f"[{name}] {d} belum ada -> dilewati")
+        return 0
+    names = [x.strip() for x in (d / "classes.txt").read_text(encoding="utf-8").splitlines() if x.strip()]
+    imgs = sorted(p for p in (d / "images").iterdir() if p.suffix.lower() in IMG_EXTS)
+    chosen = sample(imgs, limit, dcfg["seed"])
+    reset_dir(root)
+    for p in chosen:
+        dst = root / "images" / p.name
+        try:
+            os.link(p, dst)          # hardlink: hemat disk (folder sama-sama di /workspace)
+        except OSError:
+            shutil.copy2(p, dst)
+        lab = d / "labels" / f"{p.stem}.txt"
+        (root / "labels" / f"{p.stem}.txt").write_text(lab.read_text(encoding="utf-8") if lab.exists() else "",
+                                                       encoding="utf-8")
+    print(f"[{name}] {len(imgs)} gambar, diambil {len(chosen)}")
+    write_meta(root, {"source": name, "type": "local_yolo", "local_dir": str(d), "available": len(imgs),
+                      "downloaded": len(chosen), "limit": limit}, names)
+    return len(chosen)
+
+
 HANDLERS = {
+    "local_yolo": dl_local_yolo,
     "hf_yolo_files": lambda n, s, r, l, d, k: dl_hf_yolo_files(n, s, r, l, d),
     "hf_coco_zip": dl_hf_coco_zip,
     "hf_yolo_zip": dl_hf_yolo_zip,

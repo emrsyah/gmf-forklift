@@ -169,6 +169,33 @@ sources:
             Manhole, Tree, Guard rail, Pedestrian crosswalk, Truck, Bus, Bench, Traffic Cone, Fire hydrant,
             Teraffic Barrel, Plant Pot, Electrical Box, Chair, Bicycle Rack]   # data.yaml upstream (ejaan asli)
 
+  # Roboflow Universe "Cardboard Box 3" (dsss-89pyg, v1): 2.078 gambar (724 foto asal x augmentasi), kelas
+  # closed box / open box -> `box`. Lisensi Public Domain (README ekspor). Unduh manual (akun Roboflow):
+  # Download Dataset -> YOLOv8 -> zip, lalu susun ulang ke images/<split> + labels/<split> + classes.txt.
+  cardboard_box3:
+    enabled: true
+    type: yolo_local
+    local_dir: data/manual/cardboard_box3
+    class_map: front_cardboard.yaml
+    max_images: null
+    download_mb: 156
+    manual: |
+      https://universe.roboflow.com/dsss-89pyg/cardboard-box-3/dataset/1 -> Download -> YOLOv8 zip.
+      Ekstrak dengan tar (nama file panjang), lalu pindahkan <split>/images -> images/<split>,
+      <split>/labels -> labels/<split>, dan tulis classes.txt berisi "closed box" dan "open box" (urutan data.yaml).
+
+  # Roboflow Universe "Cardboard Box 4" (dsss-89pyg, v1): 759 gambar, closed box / open box / pallet.
+  # Public Domain. Unduh + susun sama dengan cardboard_box3 (classes.txt: closed box, open box, pallet).
+  cardboard_box4:
+    enabled: true
+    type: yolo_local
+    local_dir: data/manual/cardboard_box4
+    class_map: front_cardboard4.yaml
+    max_images: null
+    download_mb: 60
+    manual: |
+      https://universe.roboflow.com/dsss-89pyg/cardboard-box-4/dataset/1 -> Download -> YOLOv8 zip (lihat cardboard_box3).
+
   # Data sintetis (Isaac Sim / Omniverse Replicator) atau rekaman tim berlabel CVAT. PLACEHOLDER: dilewati
   # sampai folder ada. Format: <local_dir>/images/**, <local_dir>/labels/** (YOLO), <local_dir>/classes.txt.
   synthetic:

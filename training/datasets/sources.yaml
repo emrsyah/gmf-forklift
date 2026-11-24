@@ -104,6 +104,19 @@ sources:
     max_images: 6000
     download_mb: 1500                   # + streaming CSV anotasi 2,3 GB dan daftar gambar 0,6 GB
 
+  # DMD (Vicomtech Driver Monitoring Dataset, sesi distraksi s1/s2, kamera wajah + badan, RGB 1280x720):
+  # frame "texting/phonecall" dengan kotak ponsel hasil auto-label YOLO-World (frame tanpa kotak dibuang ->
+  # ponsel tersembunyi tidak diajarkan sebagai latar) + frame aksi lain sebagai negatif (radio, minum, dll).
+  # Dibuat di pod oleh training/scripts/dmd_to_yolo.py -> data/manual/dmd_phone. Lisensi CC BY-NC-ND 4.0
+  # (non-komersial; dipakai untuk PoC atas keputusan pengguna 2026-11-25). Folder tidak ada -> dilewati.
+  dmd_phone:
+    enabled: true
+    type: local_yolo
+    local_dir: data/manual/dmd_phone
+    class_map: dmd_phone.yaml
+    max_images: null
+    download_mb: null
+
   # Foto ponsel di tangan (kecil, 57 gambar). Satu sesi -> satu grup.
   # NONAKTIF: cek visual menunjukkan sebagian kotak tidak pas dengan ponsel (mis. kotak di pergelangan
   # tangan / tepi keyboard). Aktifkan hanya setelah label dikoreksi di CVAT.

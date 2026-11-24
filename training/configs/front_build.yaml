@@ -2,8 +2,9 @@
 # training/scripts/build_front_dataset.py dan front_sources.py. Path relatif dihitung dari root repo.
 # Kamera depan = RGB biasa -> TIDAK ada simulasi NIR di sini (beda dengan cabin_build.yaml).
 
-version: front_v1
-classes: [person, forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle]  # urutan = ID (Tech Spec bag. 6)
+version: front_v2
+# urutan = ID (Tech Spec bag. 6). front_v2: + `box` (kardus) di akhir -> ID 0..6 sama dengan front_v1.
+classes: [person, forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle, box]
 
 paths:
   raw: data/front_raw                   # terpisah dari data/raw (kabin) -> build kabin & depan tidak saling hapus

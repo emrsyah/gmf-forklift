@@ -10,8 +10,9 @@ map:
   aircraft_part: [aircraft_part]
   ladder_stand: [ladder_stand]
   obstacle: [obstacle]
+  box: [box]
 
-labelled: [person, forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle]
+labelled: [person, forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle, box]
 subsets: []
 
 derive:

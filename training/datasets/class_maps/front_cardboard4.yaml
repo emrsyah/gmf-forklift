@@ -1,0 +1,22 @@
+# Roboflow Universe "Cardboard Box 4" (dsss-89pyg, v1, Public Domain) -> `box`. Sebagian foto sama dengan
+# Cardboard Box 3 (dHash menggabungkan duplikat lintas sumber ke satu grup -> tidak bocor antar split).
+# `pallet` sengaja dibuang, sama dengan front_loco.yaml (palet di rak bukan rintangan jalur).
+source: cardboard_box4
+
+map:
+  closed box: [box]
+  open box: [box]
+  pallet: []
+
+labelled: [box]
+subsets: []
+
+derive:
+  teacher_fill: [person]
+
+group:
+  regex:
+    - '^(?:train|valid|test)__(?P<g>.+?)\.rf\.[0-9a-f]+$'
+  on_no_match: train
+  whole_source: false
+  dhash: true

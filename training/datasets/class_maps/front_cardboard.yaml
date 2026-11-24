@@ -1,0 +1,24 @@
+# Roboflow Universe "Cardboard Box 3" (dsss-89pyg, v1, Public Domain) -> kelas kamera depan `box` (kardus).
+# Untuk uji simulasi hari-H: kardus di jalur forklift ditandai `box` dan masuk danger_object_classes (F-03).
+# Ekspor Roboflow: 724 foto asal, train diaugmentasi 3x (nama "<asal>_jpg.rf.<hash>"), sebagian label poligon
+# (read_yolo mengubahnya ke bbox). Kebanyakan foto produk (kardus besar, latar polos); kardus kecil/jauh
+# bergantung augmentasi skala + mosaic.
+source: cardboard_box3
+
+map:
+  closed box: [box]
+  open box: [box]
+
+labelled: [box]
+subsets: []
+
+derive:
+  teacher_fill: [person]        # orang (jarang) di foto kardus diisi teacher COCO supaya tidak jadi latar
+
+group:
+  # stem dari front_sources.rel_stem: "<split>__<foto asal>_jpg.rf.<hash>" -> salinan augmentasi satu foto = satu grup
+  regex:
+    - '^(?:train|valid|test)__(?P<g>.+?)\.rf\.[0-9a-f]+$'
+  on_no_match: train
+  whole_source: false
+  dhash: true
