@@ -25,12 +25,17 @@ class _FfmpegRtsp:
     def __init__(self, ffmpeg: str, url: str, transport: str = "tcp", extra_args: list | None = None):
         # probesize kecil + analyzeduration 0: SPS sudah cukup; default ffmpeg menahan ~5 s input dulu.
         # JANGAN -fflags nobuffer: diuji (ffmpeg 9) separuh frame hilang di penerima.
+        # srt://: MPEG-TS lewat SRT (UDP + kirim ulang) -> tahan paket hilang di uplink 5G (RTSP/TCP macet)
+        out = (["-f", "mpegts", url] if url.startswith("srt://")
+               else ["-f", "rtsp", "-rtsp_transport", transport, url])
         cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-use_wallclock_as_timestamps", "1",
                "-probesize", "32768", "-analyzeduration", "0",
-               "-f", "h264", "-i", "pipe:0", "-c", "copy", *(extra_args or []),
-               "-f", "rtsp", "-rtsp_transport", transport, url]
+               "-f", "h264", "-i", "pipe:0", "-c", "copy", *(extra_args or []), *out]
+        import sys
+        from src.io.overlay_stream import _die_with_parent
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE)
+                                     stderr=subprocess.PIPE,
+                                     preexec_fn=_die_with_parent if sys.platform.startswith("linux") else None)
         self._err = b""
         # stderr dibaca terus (proses hidup lama): pipa penuh bisa membuat ffmpeg macet
         threading.Thread(target=self._drain, daemon=True).start()

@@ -41,6 +41,37 @@ class FrontTrack:
     approaching: bool
 
 
+def track_styles(res: "FrontResult") -> list[tuple["FrontTrack", tuple[int, int, int], str]]:
+    """(track, warna BGR, label) per track: dipakai overlay OpenCV dan kotak yang digambar dashboard."""
+    cand_by_tid = {c.track_id: c for c in res.candidates}
+    out = []
+    for t in res.tracks:
+        c = cand_by_tid.get(t.track_id) if t.track_id is not None else None
+        col = _RED if c and c.level == "A-03" else _ORANGE if c else _GREEN if t.distance_m else _GREY
+        tid = "-" if t.track_id is None else str(t.track_id)
+        label = f"#{tid} {t.cls}"
+        if t.distance_m is not None:
+            label += f" {t.distance_m:.1f}m"
+            if t.distance_method and t.distance_method != "foot":
+                label += f"({t.distance_method[0]})"
+        if t.speed_mps is not None:
+            label += f" {t.speed_mps:+.1f}m/s"
+        if c:
+            label += f" {c.code}?"
+        out.append((t, col, label))
+    return out
+
+
+def dets_message(res: "FrontResult", w: int, h: int, rot: int = 0) -> dict:
+    """Kotak deteksi untuk digambar di atas video kamera asli (dashboard), koordinat 0..1 gambar terputar."""
+    boxes = []
+    for t, (b, g, r), label in track_styles(res):
+        x1, y1, x2, y2 = t.box
+        boxes.append({"b": [round(min(max(v, 0.0), 1.0), 4) for v in (x1 / w, y1 / h, x2 / w, y2 / h)],
+                      "c": f"#{r:02x}{g:02x}{b:02x}", "l": label})
+    return {"t": int(res.ts_ms), "rot": int(rot) % 360, "boxes": boxes}
+
+
 @dataclass
 class FrontResult:
     ts_ms: int
@@ -126,22 +157,9 @@ class FrontPipeline:
                 cv2.line(vis, (0, y), (w - 1, y), col, 1, cv2.LINE_AA)
                 cv2.putText(vis, f"{d_m:g} m", (5, y - 4), _FONT, 0.5, col, 1, cv2.LINE_AA)
 
-        cand_by_tid = {c.track_id: c for c in res.candidates}
-        for t in res.tracks:
+        for t, col, label in track_styles(res):
             x1, y1, x2, y2 = (int(round(c)) for c in t.box)
-            c = cand_by_tid.get(t.track_id) if t.track_id is not None else None
-            col = _RED if c and c.level == "A-03" else _ORANGE if c else _GREEN if t.distance_m else _GREY
             cv2.rectangle(vis, (x1, y1), (x2, y2), col, 2)
-            tid = "-" if t.track_id is None else str(t.track_id)
-            label = f"#{tid} {t.cls}"
-            if t.distance_m is not None:
-                label += f" {t.distance_m:.1f}m"
-                if t.distance_method and t.distance_method != "foot":
-                    label += f"({t.distance_method[0]})"
-            if t.speed_mps is not None:
-                label += f" {t.speed_mps:+.1f}m/s"
-            if c:
-                label += f" {c.code}?"
             (tw, th), _ = cv2.getTextSize(label, _FONT, 0.5, 1)
             ty = max(th + 4, y1)
             cv2.rectangle(vis, (x1, ty - th - 4), (x1 + tw + 4, ty), col, -1)

@@ -42,8 +42,9 @@ class FrontDetectWorker:
     """
 
     def __init__(self, pipe, fps: float, rotate_deg: int = 0, web=None, log_every_s: float = 5.0,
-                 decode_reduce: int = 1):
+                 decode_reduce: int = 1, dets=None):
         self.pipe = pipe
+        self.dets = dets                    # DetsPoster: kotak untuk dashboard (video asli + kotak di browser)
         self.period_s = 1.0 / max(float(fps), 0.1)
         # JPEG didekode di 1/N ukuran (YOLO memakai input 640 -> 720p penuh tidak perlu). Jarak tetap benar:
         # DistanceEstimator menskalakan intrinsik ke ukuran gambar.
@@ -99,6 +100,9 @@ class FrontDetectWorker:
                 res = self.pipe.process(Frame(img, fr.ts_ms, fr.index, fr.video_t_s))
                 self.last = res
                 self.last_view = (res, img.shape[:2])   # satu tuple: dibaca thread kamera tanpa kunci
+                if self.dets is not None:
+                    from src.front.pipeline import dets_message
+                    self.dets.push(dets_message(res, img.shape[1], img.shape[0], self.rotate))
                 n += 1
                 if self.publish and self.web is not None and self.web.wants("front"):
                     self.web.publish(self.pipe.draw(img, res, self.fps), "front")
@@ -118,6 +122,8 @@ class FrontDetectWorker:
         with self._cv:
             self._cv.notify()
         self._thread.join(timeout_s)
+        if self.dets is not None:
+            self.dets.close()
 
 
 def scale_result(res, sx: float, sy: float):

@@ -255,14 +255,22 @@ def main(argv=None):
             else:
                 f_rec = ContinuousRecorder(f_rec_cfg, dev_id)
             print(f"[rekam] kamera depan direkam -> {f_rec.dir}", flush=True)
-        f_stream = None
+        f_streams = []
         st_cfg = fp_cfg.get("stream", {}) or {}
-        if st_cfg.get("enabled", False):     # H.264 kamera -> RTSP (MediaMTX) untuk ditonton dari laptop
+        if st_cfg.get("enabled", False):     # H.264 kamera -> MediaMTX (lokal dan/atau server MINERVA)
             from src.io.h264_stream import H264RtspPublisher
-            try:
-                f_stream = H264RtspPublisher(st_cfg, on_restart=lambda: holder["front"].request_idr())
-            except RuntimeError as e:
-                print(f"[stream] tidak aktif: {e}", flush=True)
+            urls = st_cfg.get("urls") or [st_cfg.get("url")]
+            for url in [u for u in urls if u]:
+                try:
+                    f_streams.append(H264RtspPublisher(dict(st_cfg, url=url),
+                                                       on_restart=lambda: holder["front"].request_idr()))
+                except RuntimeError as e:
+                    print(f"[stream] {url} tidak aktif: {e}", flush=True)
+        f_dets = None
+        dets_url = (fp_cfg.get("detect", {}) or {}).get("dets_url")
+        if dets_url:                         # kotak deteksi -> agen edge -> dashboard (digambar di atas video asli)
+            from src.io.dets_post import DetsPoster
+            f_dets = DetsPoster(dets_url)
         f_det = None
         det_cfg = fp_cfg.get("detect", {}) or {}
         if det_cfg.get("enabled", False):    # YOLO + ByteTrack depan; kotak di kanal web, tanpa event F-xx
@@ -271,12 +279,13 @@ def main(argv=None):
             try:
                 f_det = FrontDetectWorker(FrontPipeline.from_config(cfg), det_cfg.get("fps", 10),
                                           int(fp_cfg.get("rotate", 0)), vout,
-                                          det_cfg.get("log_every_s", 5), det_cfg.get("decode_reduce", 1))
+                                          det_cfg.get("log_every_s", 5), det_cfg.get("decode_reduce", 1),
+                                          dets=f_dets)
                 print(f"[depan] deteksi aktif: {rt['front']['yolo']['weights']} @ <= {det_cfg.get('fps', 10)} fps",
                       flush=True)
             except Exception as e:           # model tidak ada / gagal dimuat: pratinjau tetap jalan
                 print(f"[depan] deteksi tidak aktif: {e!r}", flush=True)
-        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, vout, f_rec, [f_h264, f_stream],
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, vout, f_rec, [f_h264, *f_streams],
                              detector=f_det)
         holder["front"] = front
     t_log, n_log = time.monotonic(), 0

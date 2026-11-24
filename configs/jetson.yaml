@@ -88,7 +88,8 @@ runtime:
       # ~2.7 Mbps vs ~12 Mbps MJPG; dipakai rekaman tanpa encode ulang.
       h264_mux:
         enabled: true
-        bitrate: 3000000
+        # 2 Mbps: aliran ini juga ke dashboard lewat uplink 5G (front_preview.stream); 720p30 tetap jernih
+        bitrate: 2000000
         iframe_period_ms: 1000
         profile: constrained_baseline
         unit_id: null
@@ -100,6 +101,9 @@ runtime:
       enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx
       fps: 10
       decode_reduce: 2      # 720p -> 640x360 untuk YOLO (input 640); hemat ~8-10% satu core
+      # Kotak deteksi -> agen edge (inbox lokal) -> server MINERVA -> dashboard, digambar di atas video
+      # asli kamera (stream.urls). Agen edge tidak jalan -> dicoba lagi tiap 5 s, deteksi tidak terganggu.
+      dets_url: http://127.0.0.1:8098/dets?cam=forward
     # Tampilan (web + overlay_stream): tiap frame kamera didekode dan diberi kotak deteksi terakhir,
     # jadi video depan halus walau deteksi 10 fps. 1 = 720p penuh (tajam), 2 = 640x360 (hemat CPU).
     # Uji 2026-11-24: 1 (720p penuh @ 20 fps) -> thread depan ~32% CPU dan FPS kabin turun ke ~11-20.
@@ -109,12 +113,15 @@ runtime:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front
       codec: H264           # simpan H.264 kamera apa adanya (MP4 + .ts.csv); MJPG otomatis jika H.264 tidak ada
-    # H.264 kamera di-relay tanpa encode ulang ke MediaMTX (tools/jetson/mediamtx.sh di Jetson).
-    # Tonton: http://IP-JETSON:8889/front (browser, WebRTC) atau rtsp://IP-JETSON:8554/front.
-    # Nanti relay pindah ke server MINERVA: cukup ganti url ke rtsp://<server-minerva>:8554/<path>.
+    # H.264 kamera di-relay tanpa encode ulang (720p 30 fps, CPU ~1%) ke:
+    #  - MediaMTX lokal (tools/jetson/mediamtx.sh): http://IP-JETSON:8889/front (Tailscale/Wi-Fi)
+    #  - MediaMTX server MINERVA lewat SRT: dashboard memutar fl-01/front dan menggambar kotak (detect.dets_url)
+    #    di browser. Video terputar (rotate) diputar oleh dashboard juga (rot ikut di pesan kotak).
     stream:
       enabled: true
-      url: rtsp://127.0.0.1:8554/front
+      urls:
+        - rtsp://127.0.0.1:8554/front
+        - srt://10.1.36.86:8890?streamid=publish:fl-01/front&pkt_size=1316&latency=300000
   # Uji 2026-11-23 (src.main saja, 20 s): bawaan 168% CPU ~20.7 FPS | opencv 2: 129% ~19.5 FPS |
   # opencv 1: 107% ~18.2 FPS. Thread pool OpenCV berputar saat menunggu; OMP/OpenBLAS=1 tidak berpengaruh.
   threads:
@@ -137,10 +144,10 @@ runtime:
       # MediaMTX server: srt: true, srtAddress :8890 (impactto jetson/mediamtx/mediamtx.yml).
       base_url: srt://10.1.36.86:8890
       srt_latency_ms: 300
+      # Depan: video asli kamera (front_preview.stream) + kotak di browser, bukan encode ulang di sini.
       channels:
         cabin: fl-01/cabin
-        front: fl-01/front
-      fps: 20               # kabin ~22 FPS deteksi; depan mengikuti kamera (front_preview.view)
+      fps: 20               # kabin ~22 FPS deteksi
       max_side: 960
       bitrate: 1200k
       bufsize: 600k
