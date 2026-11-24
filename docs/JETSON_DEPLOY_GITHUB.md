@@ -23,7 +23,7 @@ CSI hanya bisa dibuka satu proses.
 
 ```bash
 # 1. Ambil kode (butuh akses ke repo privat: gh auth login, atau token HTTPS)
-cd ~ && git clone https://github.com/<OWNER>/<REPO>.git gmf-src   # sekali saja; berikutnya: cd ~/gmf-src && git pull
+cd ~ && git clone https://github.com/emrsyah/gmf-forklift.git gmf-src   # sekali saja; berikutnya: cd ~/gmf-src && git pull
 
 # 2. Cadangkan lalu salin kode ke folder yang dipakai detektor
 cd ~/gmf-forklift && mkdir -p backups && tar -czf backups/pre-$(date +%Y%m%d-%H%M%S).tgz src configs tools
@@ -32,7 +32,8 @@ git -C ~/gmf-src rev-parse --short HEAD > ~/gmf-forklift/DEPLOYED_REV
 
 # 3. Unduh model dari Release
 cd ~/gmf-forklift && mkdir -p models/weights models/face models/mediapipe
-gh release download <TAG> -R <OWNER>/<REPO> -D /tmp/gmf-models --clobber
+gh release download models-2026-11-25 -R emrsyah/gmf-forklift -D /tmp/gmf-models --clobber
+# tanpa gh: unduh file di halaman Releases lewat browser, lalu taruh di /tmp/gmf-models
 cp /tmp/gmf-models/*.onnx models/weights/
 mv models/weights/face_detection_yunet_2023mar.onnx models/face/
 cp /tmp/gmf-models/face_landmarker.task models/mediapipe/
