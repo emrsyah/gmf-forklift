@@ -78,7 +78,7 @@ if ($Restart) {
     # Nama variabel PowerShell tidak peka huruf besar: `$restart` akan menimpa switch -Restart -> pakai nama lain.
     $restartCmd = @"
 if pgrep -f run_detector.sh >/dev/null; then
-  pkill -f 'python -u -m src.main' ; sleep 12 ; pgrep -af 'python -u -m src.main' || echo 'PERINGATAN: src.main belum jalan lagi'
+  pkill -f '[p]ython -u -m src.main' ; sleep 12 ; pgrep -af '[p]ython -u -m src.main' || echo 'PERINGATAN: src.main belum jalan lagi'
 else
   cd $RemoteDir && bash tools/jetson/live.sh stop; bash tools/jetson/live.sh start
 fi
