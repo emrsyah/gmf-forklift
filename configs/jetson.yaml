@@ -88,8 +88,9 @@ runtime:
       # ~2.7 Mbps vs ~12 Mbps MJPG; dipakai rekaman tanpa encode ulang.
       h264_mux:
         enabled: true
-        # 2 Mbps: aliran ini juga ke dashboard lewat uplink 5G (front_preview.stream); 720p30 tetap jernih
-        bitrate: 2000000
+        # Uji 2026-11-24: 2 Mbps terlihat kasar saat bergerak -> kembali 3 Mbps. Aliran ini juga ke dashboard
+        # lewat uplink 5G; jangan tonton /front lewat Tailscale bersamaan (uplink yang sama, ~5 Mbps).
+        bitrate: 3000000
         iframe_period_ms: 1000
         profile: constrained_baseline
         unit_id: null
