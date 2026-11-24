@@ -17,6 +17,7 @@ Tipe sumber (training/datasets/sources_front.yaml -> type):
     crowdhuman        : .odgt + zip gambar (HF sshao0516/CrowdHuman, HTTP range) atau folder lokal
     apron_local       : Apron Dataset (manual, butuh registrasi) -> CSV per gambar
     yolo_local        : folder YOLO lokal (data sintetis / rekaman tim)
+    hf_yolo_manifest  : repo HF YOLO + manifest CSV per gambar (ROD: cone/barel/kursi untuk uji simulasi)
 """
 from __future__ import annotations
 
@@ -409,8 +410,79 @@ def dl_yolo_local(name: str, s: dict, root: Path, limit: int | None, dcfg: dict,
     return len(chosen)
 
 
+# ------------------------------------------------------------------ handler: repo HF YOLO + manifest per gambar
+def manifest_select(rows: list[dict], want: list[str], col: str = "class_names_present") -> list[dict]:
+    """Baris manifest yang berisi minimal satu kelas di `want` (nama upstream, dipisah koma)."""
+    w = set(want)
+    return [r for r in rows if w & {x.strip() for x in (r.get(col) or "").split(",") if x.strip()}]
+
+
+def manifest_stem(old_stem: str | None, new_stem: str) -> str:
+    """Stem keluaran = '<asal>__<baru>'. <asal> = nama file sumber sebelum '.rf.<hash>' (ekspor Roboflow):
+    salinan augmentasi Roboflow dari satu foto punya <asal> sama -> satu grup split (regex class map)."""
+    base = (old_stem or "").split(".rf.")[0]
+    return f"{sanitize(base) or 'na'}__{new_stem}"
+
+
+def dl_hf_yolo_manifest(name: str, s: dict, root: Path, limit: int | None, dcfg: dict, keep_archives: bool) -> int:
+    """Repo HF berformat YOLO dengan manifest CSV per gambar (mis. ROD ty-li/Obstacle-Detection-Dataset-YOLO).
+    Hanya gambar berisi kelas `want_classes` yang diunduh (tanpa menelusuri ribuan label)."""
+    from huggingface_hub import HfApi, hf_hub_url
+
+    repo, rev = s["repo"], s.get("revision", "main")
+    url = lambda p: hf_hub_url(repo, p, repo_type="dataset", revision=rev)  # noqa: E731
+    cache = root / "_archives"
+    rows = list(csv.DictReader(io.StringIO(_fetch_cached(url(s["manifest"]), cache, dcfg).read_text(encoding="utf-8"))))
+    old = {}
+    if s.get("rename_map"):
+        for r in csv.DictReader(io.StringIO(_fetch_cached(url(s["rename_map"]), cache, dcfg).read_text(encoding="utf-8"))):
+            old[r["new_stem"]] = r["old_stem"]
+    pool = manifest_select(rows, s["want_classes"])
+    # path sebenarnya di repo (split train di-shard ke subfolder images/0/, valid/test datar)
+    files = HfApi().list_repo_files(repo, repo_type="dataset", revision=rev)
+    by_name = {}
+    for f in files:
+        parts = f.split("/")
+        if len(parts) >= 3 and parts[1] in ("images", "labels"):
+            by_name[(parts[0], parts[1], parts[-1])] = f
+    chosen = sample([r["image_filename"] for r in pool], limit, dcfg["seed"])
+    rec = {r["image_filename"]: r for r in pool}
+    stems = {fn: manifest_stem(old.get(Path(fn).stem), Path(fn).stem) for fn in chosen}
+    print(f"[{name}] {len(rows)} gambar di manifest, {len(pool)} berisi {s['want_classes']}, dipilih {len(chosen)}")
+    dp.reset_dir(root, keep=set(stems.values()))
+
+    def job(fn: str) -> int:
+        r = rec[fn]
+        stem = stems[fn]
+        img_dst, lab_dst = root / "images" / f"{stem}{Path(fn).suffix.lower()}", root / "labels" / f"{stem}.txt"
+        if dp._have(img_dst, lab_dst):
+            return 1
+        ip = by_name.get((r["split"], "images", fn))
+        lp = by_name.get((r["split"], "labels", r["label_filename"]))
+        if not ip or not lp:
+            print(f"  lewati (tidak ada di repo): {r['split']}/{fn}")
+            return 0
+        try:
+            dp.http_get(url(ip), img_dst, dcfg["retries"], dcfg["timeout_s"])
+            dp.http_get(url(lp), lab_dst, dcfg["retries"], dcfg["timeout_s"])
+        except Exception as e:  # noqa: BLE001
+            print(f"  lewati {fn}: {e}")
+            img_dst.unlink(missing_ok=True)
+            lab_dst.unlink(missing_ok=True)
+            return 0
+        return 1
+
+    n = _parallel(job, chosen, dcfg["workers"])
+    if not keep_archives:
+        shutil.rmtree(cache, ignore_errors=True)
+    dp.write_meta(root, {"source": name, "type": "hf_yolo_manifest", "repo": repo, "revision": rev,
+                         "available": len(pool), "downloaded": n, "limit": limit}, list(s["names"]))
+    return n
+
+
 HANDLERS = {
     "coco_ultralytics": dp.dl_coco_ultralytics,
+    "hf_yolo_manifest": dl_hf_yolo_manifest,
     "roboflow": dp.dl_roboflow,
     "loco": dl_loco,
     "crowdhuman": dl_crowdhuman,

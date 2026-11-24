@@ -53,6 +53,13 @@ def test_other_obstacle_in_danger_zone_is_nothing(ze):
     assert ze.evaluate([T(1, "pallet_jack", 0.5)]) == []
 
 
+def test_sim_obstacle_chair_or_cone_in_danger_zone_is_F03(ze):
+    # uji simulasi: kursi/cone (kelas obstacle) di jalur menggantikan pesawat/GSE
+    c = ze.evaluate([T(1, "obstacle", ze.danger_zone_m - 0.5)])
+    assert [x.code for x in c] == ["F03"] and c[0].level == "A-03"
+    assert ze.evaluate([T(2, "obstacle", ze.danger_zone_m + 0.5)]) == []
+
+
 def test_unknown_distance_is_ignored(ze):
     assert ze.evaluate([T(1, "person", None, approaching=True)]) == []
 

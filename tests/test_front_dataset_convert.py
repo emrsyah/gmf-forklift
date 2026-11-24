@@ -69,6 +69,36 @@ def test_apron_class_map_covers_all_43_names():
     assert cm.map[names.index("Traffic Sign")] == []
 
 
+def test_sim_obstacles_mapped_consistently():
+    # uji simulasi (kursi, cone, orang): kursi COCO = obstacle di training, teacher, dan alias runtime
+    coco = cmap("coco_person")["map"]
+    teacher = set(CFG["teacher_fill"]["map"]["obstacle"])
+    alias = yaml.safe_load((REPO / "configs/front_camera.yaml").read_text(encoding="utf-8"))["classes"]["aliases"]
+    coco_obst = {k for k, v in coco.items() if v == ["obstacle"]}
+    assert coco_obst == teacher == {k for k, v in alias.items() if v == "obstacle"} >= {"chair"}
+    rod = SOURCES["rod_obstacles"]
+    cm = ClassMap(cmap("rod_obstacles"), rod["names"], OURS)
+    names = rod["names"]
+    for n in ("Traffic Cone", "Teraffic Barrel", "Chair"):
+        assert cm.map[names.index(n)] == [C["obstacle"]]
+    assert cm.map[names.index("Person")] == [C["person"]] and cm.map[names.index("Road")] == []
+    assert all(n in names for n in rod["want_classes"])
+
+
+def test_rod_manifest_select_and_group_stem():
+    rows = [{"image_filename": "a.jpg", "class_names_present": "Car,Person"},
+            {"image_filename": "b.jpg", "class_names_present": "Traffic Cone"},
+            {"image_filename": "c.jpg", "class_names_present": "Person,Chair,Tree"}]
+    assert [r["image_filename"] for r in fs.manifest_select(rows, ["Traffic Cone", "Chair"])] == ["b.jpg", "c.jpg"]
+    # dua salinan augmentasi Roboflow dari satu foto -> grup sama; foto lain -> grup lain
+    m = ClassMap(cmap("rod_obstacles"), SOURCES["rod_obstacles"]["names"], OURS)
+    s1 = fs.manifest_stem("Road-Cones_jpg.rf.d0fd", "IMG_11503")
+    s2 = fs.manifest_stem("Road-Cones_jpg.rf.aa11", "IMG_11504")
+    s3 = fs.manifest_stem("28-Inch-Safety-Cone_webp.rf.35b4", "IMG_03462")
+    assert m.group("rod", s1) == m.group("rod", s2) != m.group("rod", s3)
+    assert fs.manifest_stem(None, "IMG_1") == "na__IMG_1"
+
+
 def test_all_front_class_maps_target_known_classes():
     for name, s in SOURCES.items():
         cm = cmap(name)

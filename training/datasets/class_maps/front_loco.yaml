@@ -18,7 +18,8 @@ subsets: []
 derive:
   # LOCO tidak melabel orang walaupun ada orang di gambar gudang -> isi dengan teacher COCO (pseudo).
   # gse_vehicle sengaja tidak diisi: di gudang, teacher COCO sering menyebut forklift/pallet truck "truck".
-  teacher_fill: [person]
+  # obstacle: hanya kursi/bangku/pot/koper versi teacher COCO (bukan palet di rak, lihat map di atas).
+  teacher_fill: [person, obstacle]
 
 group:
   # Stem dari front_sources.loco_member_and_stem: "subset-5__2020-03-05_1__RealSense__color__0__<ts>"

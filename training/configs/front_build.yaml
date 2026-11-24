@@ -41,6 +41,7 @@ teacher_fill:
     person: [person]
     gse_vehicle: [car, truck, bus]
     aircraft_part: [airplane]
+    obstacle: [chair, bench, potted plant, suitcase]   # rintangan uji simulasi; cone tidak ada di COCO (sumber ROD)
 
 split:
   ratios: {train: 0.80, val: 0.10, test: 0.10}

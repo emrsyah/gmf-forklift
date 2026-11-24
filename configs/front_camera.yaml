@@ -40,9 +40,17 @@ classes:
     truck: gse_vehicle
     bus: gse_vehicle
     car: gse_vehicle
+    # Rintangan uji SIMULASI (kursi/bangku/pot/koper). Cone TIDAK ada di COCO: baru terdeteksi dengan front_best
+    # (sumber ROD di sources_front.yaml). Sama dengan pemetaan training (front_coco_person.yaml).
+    chair: obstacle
+    bench: obstacle
+    potted plant: obstacle
+    suitcase: obstacle
   obstacle_classes: [forklift, pallet_jack, gse_vehicle, aircraft_part, ladder_stand, obstacle]
   obstacle_conf: 0.35
-  danger_object_classes: [aircraft_part, gse_vehicle]   # F-03 (usulan)
+  # F-03 (usulan). `obstacle` ikut selama UJI SIMULASI (kursi/cone menggantikan pesawat/GSE di jalur);
+  # hapus `obstacle` dari daftar ini sebelum uji di hangar kalau HSE GMF hanya ingin pesawat/GSE.
+  danger_object_classes: [aircraft_part, gse_vehicle, obstacle]
 
 zones:
   # Kode USULAN (belum disepakati HSE GMF, pertanyaan terbuka #4). Urutan = prioritas antar kode F.

@@ -1,0 +1,39 @@
+# ROD (ty-li/Obstacle-Detection-Dataset-YOLO) -> kelas kamera depan. Untuk uji SIMULASI (kursi, cone, orang)
+# sebelum uji di hangar. Gabungan banyak dataset Roboflow: tiap gambar hanya dilabel untuk kelas dataset asalnya,
+# jadi label lengkap hanya dianggap untuk `obstacle` (kelas yang dipilih saat unduh); orang/kendaraan yang tidak
+# dilabel diisi teacher COCO (dedupe dengan kotak sumber).
+source: rod_obstacles
+
+map:
+  Traffic Cone: [obstacle]
+  Teraffic Barrel: [obstacle]          # ejaan upstream
+  Chair: [obstacle]
+  Bench: [obstacle]
+  Plant Pot: [obstacle]
+  Dustbin: [obstacle]
+  Person: [person]
+  Car: [gse_vehicle]                   # sama dengan COCO car/truck/bus -> gse_vehicle
+  Truck: [gse_vehicle]
+  Bus: [gse_vehicle]
+  # sengaja tidak dipetakan: Road, Building, Tree, Manhole, Pedestrian crosswalk, Stairs (bukan rintangan
+  # jalur forklift / bukan kotak objek), Traffic sign, Electrical Pole/Box, Fire hydrant, Bicycle Rack, Bike,
+  # Motorcycle, Dog
+  Road: []
+  Building: []
+  Tree: []
+  Manhole: []
+  Pedestrian crosswalk: []
+  Stairs: []
+
+labelled: [obstacle]
+subsets: []
+
+derive:
+  teacher_fill: [person, gse_vehicle]
+
+group:
+  # stem dari front_sources.manifest_stem: "<nama file asal sebelum .rf.>__IMG_12345"
+  regex:
+    - '^(?P<g>.+)__IMG_\d+$'
+  on_no_match: train
+  whole_source: false

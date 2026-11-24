@@ -10,8 +10,15 @@ map:
   truck: [gse_vehicle]
   bus: [gse_vehicle]
   airplane: [aircraft_part]
+  # Rintangan lantai untuk uji simulasi (kursi, cone, orang) + barang lepas di hangar. Harus dipetakan: COCO
+  # melabel lengkap, jadi kursi yang tidak dipetakan dilatih sebagai LATAR dan bertentangan dengan ROD
+  # (Chair -> obstacle). Sama dengan teacher_fill.map.obstacle dan alias runtime di front_camera.yaml.
+  chair: [obstacle]
+  bench: [obstacle]
+  potted plant: [obstacle]
+  suitcase: [obstacle]
 
-labelled: [person, gse_vehicle, aircraft_part]
+labelled: [person, gse_vehicle, aircraft_part, obstacle]
 subsets: []
 
 derive:

@@ -10,7 +10,8 @@ subsets: []
 
 derive:
   # Gambar CrowdHuman (jalanan, acara) berisi mobil/bus yang tidak dilabel -> isi dengan teacher COCO.
-  teacher_fill: [gse_vehicle, aircraft_part]
+  # Kursi/bangku/pot di jalanan juga tidak dilabel -> obstacle (teacher_fill.map.obstacle).
+  teacher_fill: [gse_vehicle, aircraft_part, obstacle]
 
 group:
   # ID "273271,c9db..." : prefiks angka hanya batch crawl (beberapa ratus gambar tak terkait per prefiks),

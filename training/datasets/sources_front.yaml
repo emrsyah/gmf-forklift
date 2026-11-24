@@ -133,6 +133,25 @@ sources:
          sekuens = satu grup (build mencetak peringatan jika regex tidak cocok; gambar itu dikirim ke train).
       4. Jika file kategori di rilis berbeda dari daftar names di atas, perbarui names (urutan = id label CSV).
 
+  # ROD (Real-Time Obstacle Detection, Amirkabir Univ.): 24.326 gambar trotoar YOLO, kartu HF: MIT
+  # (gabungan 26 dataset Roboflow Universe + foto sendiri; lihat LICENSES_FRONT.md). Dipakai untuk UJI SIMULASI
+  # sebelum hangar: cone/barel lalu lintas + kursi/bangku/pot/tong sampah -> `obstacle`. COCO tidak punya
+  # kelas cone, jadi tanpa sumber ini model tidak pernah melihat cone. Hanya gambar berisi want_classes yang
+  # diunduh (~4.900 dari manifest; ~1.090 berisi cone/barel). Tanpa token.
+  rod_obstacles:
+    enabled: true
+    type: hf_yolo_manifest
+    repo: ty-li/Obstacle-Detection-Dataset-YOLO
+    manifest: images_manifest.csv       # split,image_filename,label_filename,...,class_names_present
+    rename_map: rename_map.csv          # nama file asal Roboflow -> grup split (salinan augmentasi satu foto)
+    want_classes: [Traffic Cone, Teraffic Barrel, Chair, Bench, Plant Pot, Dustbin]
+    class_map: front_rod.yaml
+    max_images: null                    # semua gambar yang berisi want_classes
+    download_mb: 400
+    names: [Bike, Building, Car, Person, Stairs, Traffic sign, Electrical Pole, Road, Motorcycle, Dustbin, Dog,
+            Manhole, Tree, Guard rail, Pedestrian crosswalk, Truck, Bus, Bench, Traffic Cone, Fire hydrant,
+            Teraffic Barrel, Plant Pot, Electrical Box, Chair, Bicycle Rack]   # data.yaml upstream (ejaan asli)
+
   # Data sintetis (Isaac Sim / Omniverse Replicator) atau rekaman tim berlabel CVAT. PLACEHOLDER: dilewati
   # sampai folder ada. Format: <local_dir>/images/**, <local_dir>/labels/** (YOLO), <local_dir>/classes.txt.
   synthetic:
