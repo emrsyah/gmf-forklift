@@ -14,6 +14,7 @@ import queue
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 import cv2
@@ -70,6 +71,8 @@ class WebView:
         self._cond = threading.Condition()
         # diganti utuh (bukan diubah di tempat) oleh loop utama -> aman dibaca thread HTTP
         self.status: dict = {}
+        # POST /stream?name=front&on=1&ttl=15: sewa aliran on_demand (agen MINERVA, saat dashboard menonton)
+        self.stream_controls: dict[str, Callable[[bool, float], None]] = {}
         view = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -140,8 +143,17 @@ class WebView:
             def do_POST(self):
                 u = urlparse(self.path)
                 k = parse_qs(u.query).get("k", [""])[0]
+                q = parse_qs(u.query)
                 if u.path == "/key" and k in KEYS:
                     view.keys.put(k)
+                    self.send_response(204)
+                    self.end_headers()
+                elif u.path == "/stream" and q.get("name", [""])[0] in view.stream_controls:
+                    try:
+                        ttl = min(max(float(q.get("ttl", ["15"])[0]), 0.0), 120.0)
+                    except ValueError:
+                        ttl = 15.0
+                    view.stream_controls[q["name"][0]](q.get("on", ["1"])[0] == "1", ttl)
                     self.send_response(204)
                     self.end_headers()
                 else:

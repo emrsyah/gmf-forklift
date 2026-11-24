@@ -31,6 +31,18 @@ def even_size(w: int, h: int, max_side: int | None) -> tuple[int, int]:
     return max(2, int(w * s + 1e-6) // 2 * 2), max(2, int(h * s + 1e-6) // 2 * 2)
 
 
+def draw_clock(img: np.ndarray, t: float) -> None:
+    """Tanggal + jam lokal di tengah atas (kiri/kanan atas dipakai panel status & daftar indikator)."""
+    text = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t))
+    h, w = img.shape[:2]
+    scale = max(0.4, w / 1600)
+    thick = 1 if w < 1200 else 2
+    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    x, y = (w - tw) // 2, 6 + th
+    cv2.rectangle(img, (x - 6, y - th - 5), (x + tw + 6, y + base + 3), (0, 0, 0), -1)
+    cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), thick, cv2.LINE_AA)
+
+
 def ffmpeg_cmd(ffmpeg: str, url: str, w: int, h: int, cfg: dict) -> list[str]:
     fps = float(cfg.get("fps", 15))
     gop = max(1, int(round(fps * float(cfg.get("gop_s", 1)))))
@@ -129,6 +141,8 @@ class _Channel:
         # Server di-restart di balik NAT 5G: RST tidak sampai, ffmpeg tidak tahu, pipa penuh -> write() macet
         # selamanya. Tulisan yang tertahan > stall_s -> ffmpeg dibunuh, tulisan gagal, sambung ulang.
         self.stall_s = float(cfg.get("stall_s", 5))
+        # Jam dinding di gambar: server MINERVA memotong klip kejadian dari aliran ini (K7: waktu + kode)
+        self.timestamp = bool(cfg.get("timestamp", False))
         self._write_t0: float | None = None
         self.stalls = 0
         self._connect = connect
@@ -210,6 +224,10 @@ class _Channel:
             w, h = self._size
             if img.shape[1] != w or img.shape[0] != h:
                 img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+            elif self.timestamp:
+                img = img.copy()            # frame yang sama dipakai keluaran lain (web view)
+            if self.timestamp:
+                draw_clock(img, time.time())
             data = np.ascontiguousarray(img).tobytes()
             self._write_t0 = time.monotonic()
             try:

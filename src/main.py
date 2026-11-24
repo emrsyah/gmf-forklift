@@ -260,12 +260,21 @@ def main(argv=None):
         if st_cfg.get("enabled", False):     # H.264 kamera -> MediaMTX (lokal dan/atau server MINERVA)
             from src.io.h264_stream import H264RtspPublisher
             urls = st_cfg.get("urls") or [st_cfg.get("url")]
-            for url in [u for u in urls if u]:
+            for entry in [u for u in urls if u]:
+                # entri: "url" atau {url, on_demand: true} (didorong hanya selama disewa lewat web POST /stream)
+                ecfg = dict(st_cfg, **entry) if isinstance(entry, dict) else dict(st_cfg, url=entry)
                 try:
-                    f_streams.append(H264RtspPublisher(dict(st_cfg, url=url),
-                                                       on_restart=lambda: holder["front"].request_idr()))
+                    f_streams.append(H264RtspPublisher(ecfg, on_restart=lambda: holder["front"].request_idr()))
                 except RuntimeError as e:
-                    print(f"[stream] {url} tidak aktif: {e}", flush=True)
+                    print(f"[stream] {ecfg.get('url')} tidak aktif: {e}", flush=True)
+            if web is None:                  # tanpa web tidak ada yang bisa menyewa: dorong terus
+                for p in f_streams:
+                    p.on_demand = False
+            if web is not None and any(p.on_demand for p in f_streams):
+                def _want_front(on: bool, ttl_s: float, pubs=tuple(p for p in f_streams if p.on_demand)) -> None:
+                    for p in pubs:
+                        p.want(on, ttl_s)
+                web.stream_controls["front"] = _want_front
         f_dets = None
         dets_url = (fp_cfg.get("detect", {}) or {}).get("dets_url")
         if dets_url:                         # kotak deteksi -> agen edge -> dashboard (digambar di atas video asli)

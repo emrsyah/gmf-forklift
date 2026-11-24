@@ -83,6 +83,23 @@ def test_frames_resized_to_fixed_size_and_rate_limited():
     assert conns[0].closed
 
 
+def test_timestamp_drawn_on_copy_not_on_shared_frame():
+    conns = []
+
+    def connect(url, w, h):
+        conns.append(FakeConn(url, w, h))
+        return conns[-1]
+
+    s = OverlayStreams({"channels": {"cabin": "c"}, "fps": 5, "max_side": 640, "timestamp": True}, connect=connect)
+    img = np.zeros((360, 640, 3), np.uint8)            # sudah ukuran keluaran: tanpa resize
+    s.publish(img, "cabin")
+    assert _wait(lambda: conns and conns[0].frames)
+    out = np.frombuffer(conns[0].frames[0], np.uint8).reshape(360, 640, 3)
+    assert out[:30].max() > 0, "jam tergambar di atas"
+    assert img.max() == 0, "frame milik web view tidak ikut tercoret"
+    s.close()
+
+
 def test_reconnects_after_failure_with_backoff():
     conns = []
 

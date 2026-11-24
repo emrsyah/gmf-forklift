@@ -70,6 +70,53 @@ def test_starts_at_idr_and_reconnects_with_cached_sps():
     assert pub.connects == 2 and asked, "kamera diminta IDR setelah putus"
 
 
+def test_on_demand_pushes_only_while_leased_and_restarts_at_idr():
+    FakeConn.made = []
+    asked = []
+    pub = H264RtspPublisher({"retry_s": 0, "on_demand": True}, connect=lambda: FakeConn(),
+                            on_restart=lambda: asked.append(1))
+    pub.push(SPS + PPS + idr(0), 0)          # tanpa sewa: tidak ada sambungan
+    _wait(lambda: pub.idle == 1)
+    assert FakeConn.made == []
+    pub.want(True, 5)
+    pub.push(p(1), 33)                       # disewa, tapi bukan IDR: menunggu
+    pub.push(SPS + PPS + idr(2), 66)
+    pub.push(p(3), 100)
+    _wait(lambda: pub.sent == 2)
+    pub.want(False)                          # sewa dihentikan -> sambungan ditutup
+    pub.push(p(4), 133)
+    _wait(lambda: pub.idle == 2)
+    assert not pub.connected
+    pub.want(True, 5)
+    pub.push(p(5), 166)
+    pub.push(idr(6), 200)                    # mulai lagi di IDR, SPS/PPS dari cache
+    pub.close()
+    first, second = FakeConn.made
+    assert bytes(first.data) == SPS + PPS + idr(2) + p(3)
+    assert bytes(second.data) == SPS + PPS + idr(6)
+    assert asked, "kamera diminta IDR saat mulai lagi"
+
+
+def test_lease_expires():
+    pub = H264RtspPublisher({"retry_s": 0, "on_demand": True}, connect=lambda: FakeConn())
+    pub.want(True, 0.05)
+    assert pub.wanted()
+    time.sleep(0.08)
+    assert not pub.wanted()
+    assert H264RtspPublisher({"retry_s": 0}, connect=lambda: FakeConn()).wanted()
+
+
+def test_no_lease_news_fails_open():
+    # agen mati / agen lama: tanpa kabar sewa selama lease_orphan_s -> dorong terus
+    pub = H264RtspPublisher({"retry_s": 0, "on_demand": True, "lease_orphan_s": 0.05}, connect=lambda: FakeConn())
+    assert not pub.wanted()
+    time.sleep(0.08)
+    assert pub.wanted()
+    pub.want(False)                              # kabar baru (off) -> berhenti lagi
+    assert not pub.wanted()
+    pub.close()
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg tidak ada")
 def test_real_rtsp_roundtrip(tmp_path):
     s = socket.socket()
