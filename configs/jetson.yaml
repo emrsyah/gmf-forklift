@@ -65,13 +65,15 @@ runtime:
     fps: 10
   front:
     enabled: false          # pipeline depan terpisah tidak dipakai; deteksi jalan di front_preview.detect
-    # YOLO11n COCO (person) TensorRT FP16, di-build DI Jetson ini (torch CUDA crash -> tensorrt_native):
-    #   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/yolo11n.onnx --saveEngine=models/weights/yolo11n.trt --fp16
-    #   python -m tools.wrap_trt_engine models/weights/yolo11n.trt models/weights/yolo11n.onnx models/weights/yolo11n.engine
-    # ByteTrack numpy (src/backends/tracking.py). Nanti diganti front_best (kelas hangar).
+    # front_best (front_v1, RunPod 2026-11-24) TensorRT FP16, di-build DI Jetson ini (torch CUDA crash -> tensorrt_native):
+    #   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/front_best.onnx --saveEngine=models/weights/front_best.trt --fp16
+    #   python -m tools.wrap_trt_engine models/weights/front_best.trt models/weights/front_best.onnx models/weights/front_best.engine
+    # Gerbang vs YOLO11n COCO (test publik): AP50 person 0.726 vs 0.661, obstacle (cone/kursi) 0.665 vs 0.488;
+    # kelas hangar (forklift, pallet_jack, gse, aircraft_part) masih di bawah COCO (data sedikit).
+    # Kembali ke COCO: weights: models/weights/yolo11n.engine. ByteTrack numpy (src/backends/tracking.py).
     yolo:
       backend: tensorrt_native
-      weights: models/weights/yolo11n.engine
+      weights: models/weights/front_best.engine
       track_fps: 10         # = front_preview.detect.fps (umur track ByteTrack dihitung per frame)
     source:
       type: webcam
