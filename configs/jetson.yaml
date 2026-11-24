@@ -123,3 +123,18 @@ runtime:
     fullscreen: false
     web:
       enabled: true         # lihat & kendalikan dari browser laptop: http://IP-JETSON:8090
+    # Video beranotasi (overlay kabin + kotak deteksi depan) -> H.264 -> MediaMTX server MINERVA (LAN 5G).
+    # Dashboard memutar WebRTC http://<server>:8889/<path> (mulus) alih-alih JPEG per frame lewat agen edge.
+    # Uji 2026-11-24: x264 ultrafast 640x360@15 ~9% satu core Orin Nano. Server pindah -> ganti base_url.
+    overlay_stream:
+      enabled: true
+      base_url: rtsp://10.1.36.86:8554
+      channels:
+        cabin: fl-01/cabin
+        front: fl-01/front
+      fps: 15
+      max_side: 640
+      bitrate: 900k
+      bufsize: 450k
+      gop_s: 1
+      retry_s: 10

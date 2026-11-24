@@ -219,6 +219,19 @@ def main(argv=None):
         web = WebView(web_port, keys_in, title=win, fps=web_cfg.get("fps", 10),
                       max_side=web_cfg.get("max_side", 960), jpeg_quality=web_cfg.get("jpeg_quality", 75))
         print(f"[web] tampilan browser: http://<IP-perangkat>:{web_port}", flush=True)
+    overlay = None
+    ov_cfg = rt.get("ui", {}).get("overlay_stream", {}) or {}
+    if ov_cfg.get("enabled", False):        # video beranotasi H.264 -> RTSP (dashboard WebRTC)
+        from src.io.overlay_stream import OverlayStreams
+        try:
+            overlay = OverlayStreams(ov_cfg)
+            print(f"[overlay] stream ke {ov_cfg.get('base_url')}: {', '.join(overlay.channels)}", flush=True)
+        except RuntimeError as e:
+            print(f"[overlay] tidak aktif: {e}", flush=True)
+    vout = None                             # semua keluaran video beranotasi (web + overlay stream)
+    if web is not None or overlay is not None:
+        from src.io.overlay_stream import VideoFanout
+        vout = VideoFanout(web, overlay)
     fp_cfg = rt.get("front_preview", {}) or {}
     front = None
     if fp_cfg.get("enabled", False):            # kamera depan: lihat + rekam, belum dideteksi
@@ -257,13 +270,13 @@ def main(argv=None):
             from src.io.front_preview import FrontDetectWorker
             try:
                 f_det = FrontDetectWorker(FrontPipeline.from_config(cfg), det_cfg.get("fps", 10),
-                                          int(fp_cfg.get("rotate", 0)), web,
+                                          int(fp_cfg.get("rotate", 0)), vout,
                                           det_cfg.get("log_every_s", 5), det_cfg.get("decode_reduce", 1))
                 print(f"[depan] deteksi aktif: {rt['front']['yolo']['weights']} @ <= {det_cfg.get('fps', 10)} fps",
                       flush=True)
             except Exception as e:           # model tidak ada / gagal dimuat: pratinjau tetap jalan
                 print(f"[depan] deteksi tidak aktif: {e!r}", flush=True)
-        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, web, f_rec, [f_h264, f_stream],
+        front = FrontPreview(rt.get("front", {}).get("source", {}), fp_cfg, vout, f_rec, [f_h264, f_stream],
                              detector=f_det)
         holder["front"] = front
     t_log, n_log = time.monotonic(), 0
@@ -333,7 +346,7 @@ def main(argv=None):
                 live_due = live.due(now_ms) and sinks.wants_frames()
                 # klip hanya menyimpan `recording.fps` (15) dari ~20 fps pipeline: frame lain tak perlu digambar
                 need_vis = (show or (recorder is not None and recorder.wants(frame.ts_ms))
-                            or (web is not None and web.wants("cabin"))
+                            or (vout is not None and vout.wants("cabin"))
                             or (live_due and live.overlay))
                 tq = time.perf_counter()
                 vis = draw_cabin(st, pipe, fps, pipe.decision.open, debug) if need_vis else None
@@ -345,8 +358,8 @@ def main(argv=None):
                 tq = time.perf_counter()
                 if live_due:
                     sinks.frame(live.encode(vis if (live.overlay and vis is not None) else frame.image, now_ms))
-                if web is not None:
-                    web.publish(vis, "cabin")
+                if vout is not None:
+                    vout.publish(vis, "cabin")
                 post_ms["out"] = (time.perf_counter() - tq) * 1000
                 t_iter_end = time.perf_counter()
                 keys = []
@@ -380,6 +393,8 @@ def main(argv=None):
         alerter.close()
         if web is not None:
             web.close()
+        if overlay is not None:
+            overlay.close()
         if show:
             cv2.destroyAllWindows()
 
