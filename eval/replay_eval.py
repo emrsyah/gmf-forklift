@@ -29,7 +29,7 @@ from typing import Callable
 
 import yaml
 
-from src.config import REPO_ROOT, Config, load_yaml, set_dotted
+from src.config import REPO_ROOT, Config, deep_merge, load_yaml, set_dotted
 
 NONE_CODES = {"", "NONE", "NORMAL", "-"}
 
@@ -338,9 +338,15 @@ def main(argv=None):
     ap.add_argument("--ignore-codes", default="",
                     help="kode yang event-nya dibuang sebelum penilaian, dipisah koma (mis. D10 untuk rekaman "
                          "simulasi tanpa properti APD). Dicatat di laporan.")
+    ap.add_argument("--overlay", action="append", default=[],
+                    help="YAML yang menimpa config, sama dengan src.main (mis. configs/jetson.yaml) -> replay "
+                         "memakai backend/threshold perangkat itu")
     a = ap.parse_args(argv)
 
-    cfg = Config.load()
+    overrides: dict = {}
+    for path in a.overlay:
+        overrides = deep_merge(overrides, load_yaml(path))
+    cfg = Config.load(overrides=overrides or None)
     if a.simulate_nir:
         cfg.runtime["cabin"]["simulate_nir"] = True
     for kv in a.set:
