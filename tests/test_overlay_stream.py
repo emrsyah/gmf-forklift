@@ -49,6 +49,15 @@ def test_ffmpeg_cmd_uses_config_values():
     assert cmd[-1] == "rtsp://h:8554/x"
 
 
+def test_srt_url_and_mpegts_output():
+    from src.io.overlay_stream import channel_url
+    u = channel_url("srt://10.1.36.86:8890", "/fl-01/cabin", {"srt_latency_ms": 250})
+    assert u == "srt://10.1.36.86:8890?streamid=publish:fl-01/cabin&pkt_size=1316&latency=250000"
+    assert channel_url("rtsp://h:8554/", "fl-01/front", {}) == "rtsp://h:8554/fl-01/front"
+    cmd = ffmpeg_cmd("ffmpeg", u, 64, 48, {})
+    assert cmd[-3:] == ["-f", "mpegts", u] and "-rtsp_transport" not in cmd
+
+
 def test_frames_resized_to_fixed_size_and_rate_limited():
     conns = []
 

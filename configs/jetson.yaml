@@ -133,13 +133,16 @@ runtime:
     # Uji 2026-11-24: x264 ultrafast 640x360@15 ~9% satu core Orin Nano. Server pindah -> ganti base_url.
     overlay_stream:
       enabled: true
-      base_url: rtsp://10.1.36.86:8554
+      # SRT (UDP + kirim ulang): RTSP/TCP lewat uplink 5G macet tiap paket hilang (uji 2026-11-24).
+      # MediaMTX server: srt: true, srtAddress :8890 (impactto jetson/mediamtx/mediamtx.yml).
+      base_url: srt://10.1.36.86:8890
+      srt_latency_ms: 300
       channels:
         cabin: fl-01/cabin
         front: fl-01/front
       fps: 20               # kabin ~22 FPS deteksi; depan mengikuti kamera (front_preview.view)
       max_side: 960
-      bitrate: 1500k
-      bufsize: 750k
+      bitrate: 1200k
+      bufsize: 600k
       gop_s: 1
       retry_s: 10

@@ -44,13 +44,43 @@ def ffmpeg_cmd(ffmpeg: str, url: str, w: int, h: int, cfg: dict) -> list[str]:
             "-b:v", str(cfg.get("bitrate", "1000k")), "-maxrate", str(cfg.get("bitrate", "1000k")),
             "-bufsize", str(cfg.get("bufsize", "500k")),
             *[str(x) for x in (cfg.get("ffmpeg_args") or [])],
-            "-f", "rtsp", "-rtsp_transport", str(cfg.get("transport", "tcp")), url]
+            *_output_args(url, cfg)]
+
+
+def _output_args(url: str, cfg: dict) -> list[str]:
+    if url.startswith("srt://"):
+        return ["-f", "mpegts", url]
+    return ["-f", "rtsp", "-rtsp_transport", str(cfg.get("transport", "tcp")), url]
+
+
+def channel_url(base: str, path: str, cfg: dict) -> str:
+    """URL publish per kanal.
+
+    SRT (UDP + kirim ulang paket hilang, disarankan lewat 5G): RTSP/TCP diuji 2026-11-24 macet tiap ada
+    paket hilang di uplink 5G (retrans tinggi, tulisan tertahan > 5 s). MediaMTX: streamid=publish:<path>.
+    """
+    base = base.rstrip("/")
+    path = str(path).strip("/")
+    if base.startswith("srt://"):
+        lat_us = int(float(cfg.get("srt_latency_ms", 300)) * 1000)   # ffmpeg: latency dalam mikrodetik
+        return f"{base}?streamid=publish:{path}&pkt_size=1316&latency={lat_us}"
+    return f"{base}/{path}"
+
+
+def _die_with_parent() -> None:
+    """Linux: ffmpeg dibunuh kernel saat thread induknya mati. Detektor di-restart dengan pkill; ffmpeg
+    yang tertahan di jaringan tidak membaca EOF stdin dan tetap hidup memegang path (uji 2026-11-24)."""
+    import ctypes
+    import signal
+    ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, int(signal.SIGKILL))   # PR_SET_PDEATHSIG
 
 
 class _FfmpegRaw:
     def __init__(self, cmd: list[str]):
+        import sys
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE)
+                                     stderr=subprocess.PIPE,
+                                     preexec_fn=_die_with_parent if sys.platform.startswith("linux") else None)
         self._err = b""
         threading.Thread(target=self._drain, daemon=True).start()
 
@@ -209,14 +239,14 @@ class OverlayStreams:
     """`wants(channel)` / `publish(img, channel)` seperti WebView, tapi ke RTSP H.264 per kanal."""
 
     def __init__(self, cfg: dict, connect: Optional[Callable[[str, int, int], object]] = None):
-        base = str(cfg.get("base_url", "rtsp://127.0.0.1:8554")).rstrip("/")
+        base = str(cfg.get("base_url", "rtsp://127.0.0.1:8554"))
         paths = cfg.get("channels") or {}
         if connect is None:
             ff = shutil.which(cfg.get("ffmpeg", "ffmpeg"))
             if ff is None:
                 raise RuntimeError("ffmpeg tidak ditemukan; overlay stream butuh ffmpeg")
             connect = lambda url, w, h: _FfmpegRaw(ffmpeg_cmd(ff, url, w, h, cfg))  # noqa: E731
-        self.channels = {ch: _Channel(ch, f"{base}/{str(p).strip('/')}", cfg, connect)
+        self.channels = {ch: _Channel(ch, channel_url(base, p, cfg), cfg, connect)
                          for ch, p in paths.items() if p}
 
     def wants(self, channel: str = "cabin") -> bool:
