@@ -1,0 +1,24 @@
+# COCO 2017 (subset kursi/bangku/pot/koper tanpa orang) -> kelas kamera depan. Pemetaan SAMA dengan
+# front_coco_person.yaml (COCO melabel lengkap; tests memeriksa konsistensi).
+source: coco_obstacles
+
+map:
+  person: [person]
+  car: [gse_vehicle]
+  truck: [gse_vehicle]
+  bus: [gse_vehicle]
+  airplane: [aircraft_part]
+  chair: [obstacle]
+  bench: [obstacle]
+  potted plant: [obstacle]
+  suitcase: [obstacle]
+
+labelled: [person, gse_vehicle, aircraft_part, obstacle]
+subsets: []
+
+derive:
+  teacher_fill: []           # sudah dilabel lengkap
+
+group:
+  regex: []                  # foto Flickr independen; dHash menangkap duplikat
+  whole_source: false

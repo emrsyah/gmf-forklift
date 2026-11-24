@@ -247,12 +247,13 @@ def assign(rows: list[dict], images_dir: Path | None, scfg: dict, seq_sources: s
 
 
 def sequence_sources(cfg: dict, active: list[str]) -> set[str]:
-    """Sumber yang grupnya ditentukan regex/whole_source (sekuens video, lokasi) -> tanpa dHash."""
+    """Sumber yang grupnya ditentukan regex/whole_source (sekuens video, lokasi) -> tanpa dHash.
+    group.dhash: true = regex hanya mengelompokkan foto asal (bukan sekuens) -> dHash tetap jalan."""
     sources = load_yaml(rpath(cfg["paths"]["sources"]))["sources"]
     out = set()
     for name in active:
         g = load_yaml(rpath(cfg["paths"]["class_maps"]) / sources[name]["class_map"]).get("group") or {}
-        if g.get("regex") or g.get("whole_source"):
+        if (g.get("regex") or g.get("whole_source")) and not g.get("dhash"):
             out.add(name)
     return out
 

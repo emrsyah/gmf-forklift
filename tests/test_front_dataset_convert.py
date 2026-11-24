@@ -76,6 +76,8 @@ def test_sim_obstacles_mapped_consistently():
     alias = yaml.safe_load((REPO / "configs/front_camera.yaml").read_text(encoding="utf-8"))["classes"]["aliases"]
     coco_obst = {k for k, v in coco.items() if v == ["obstacle"]}
     assert coco_obst == teacher == {k for k, v in alias.items() if v == "obstacle"} >= {"chair"}
+    assert cmap("coco_obstacles")["map"] == coco
+    assert set(SOURCES["coco_obstacles"]["require_class"]) == {56, 13, 58, 28}   # chair, bench, potted plant, suitcase
     rod = SOURCES["rod_obstacles"]
     cm = ClassMap(cmap("rod_obstacles"), rod["names"], OURS)
     names = rod["names"]

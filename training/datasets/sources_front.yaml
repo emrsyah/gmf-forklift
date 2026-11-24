@@ -28,6 +28,23 @@ sources:
     max_images: 5000                    # Tech Spec bag. 6: "subset ~5.000"
     download_mb: 850
 
+  # COCO 2017: gambar berisi kursi/bangku/pot/koper (rintangan UJI SIMULASI), dengan atau tanpa orang.
+  # Prioritas data saat ini: cone + kursi + orang (uji simulasi) > kelas hangar. ID COCO: bench 13,
+  # suitcase 28, chair 56, potted plant 58. Gambar yang sudah dipilih coco_person bisa terpilih lagi (dHash
+  # menggabungkan duplikat ke grup yang sama -> tidak bocor antar split).
+  coco_obstacles:
+    enabled: true
+    type: coco_ultralytics
+    labels_zip_url: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip
+    image_url_template: http://images.cocodataset.org/{split}/{name}
+    splits: [train2017, val2017]
+    require_class: [56, 13, 58, 28]     # chair, bench, potted plant, suitcase
+    min_box_area_frac: 0.01             # rintangan cukup besar (kursi jauh di meja makan tidak membantu)
+    exclude_classes: [0]                # tanpa orang: coco_person sudah memberi kursi bersama orang
+    class_map: front_coco_obstacles.yaml
+    max_images: 3000
+    download_mb: 500
+
   # LOCO (TU Munich): 5.593 gambar beranotasi, 5 lokasi gudang, JSON COCO di GitHub, gambar di dataset.zip
   # (webdisk TUM, tautan anonim, mendukung Range). Tanpa token. Lisensi CC0.
   loco:
@@ -44,8 +61,8 @@ sources:
     local_zip: data/manual/loco/dataset.zip      # opsional: jika sudah diunduh penuh (769 MB) dari https://go.mytum.de/239870
     local_dir: null                              # opsional: folder berisi file JSON di atas
     class_map: front_loco.yaml
-    max_images: null                    # semua 5.593
-    download_mb: 870                    # JSON ~104 + gambar ~769
+    max_images: 2000                    # dari 5.593: kelas hangar (forklift/pallet_jack) bukan prioritas uji simulasi
+    download_mb: 870                    # JSON ~104 + gambar (zip penuh 769 MB diunduh run_train_front.sh)
 
   # CrowdHuman (Megvii) lewat mirror HuggingFace sshao0516/CrowdHuman (tidak di-gate, kartu: cc-by-nc-4.0).
   # Tanpa token. Hanya gambar terpilih yang diunduh dari zip (HTTP Range).

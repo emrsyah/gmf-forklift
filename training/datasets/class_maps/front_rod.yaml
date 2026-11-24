@@ -37,3 +37,4 @@ group:
     - '^(?P<g>.+)__IMG_\d+$'
   on_no_match: train
   whole_source: false
+  dhash: true                # foto lepas, bukan sekuens: duplikat antar-dataset Roboflow tetap digabung dHash
