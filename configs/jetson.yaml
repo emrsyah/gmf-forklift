@@ -100,6 +100,10 @@ runtime:
       enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx
       fps: 10
       decode_reduce: 2      # 720p -> 640x360 untuk YOLO (input 640); hemat ~8-10% satu core
+    # Tampilan (web + overlay_stream): tiap frame kamera didekode dan diberi kotak deteksi terakhir,
+    # jadi video depan halus walau deteksi 10 fps. 1 = 720p penuh (tajam), 2 = 640x360 (hemat CPU).
+    view:
+      decode_reduce: 1
     recording:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front
@@ -132,9 +136,9 @@ runtime:
       channels:
         cabin: fl-01/cabin
         front: fl-01/front
-      fps: 15
-      max_side: 640
-      bitrate: 900k
-      bufsize: 450k
+      fps: 20               # kabin ~22 FPS deteksi; depan mengikuti kamera (front_preview.view)
+      max_side: 960
+      bitrate: 1500k
+      bufsize: 750k
       gop_s: 1
       retry_s: 10

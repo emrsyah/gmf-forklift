@@ -53,6 +53,10 @@ class FrontDetectWorker:
         self.log_every_s = float(log_every_s)
         self.fps = 0.0
         self.last = None                    # FrontResult terakhir
+        self.last_view = None               # (FrontResult, (h, w) gambar tempat hasil itu dihitung)
+        # False -> FrontPreview yang menggambar kotak terakhir di setiap frame kamera (video lebih halus
+        # daripada laju deteksi); True -> worker mengirim gambar hasil deteksi saja (maks. `fps`)
+        self.publish = True
         self.errors = 0
         self._slot = None
         self._cv = threading.Condition()
@@ -94,8 +98,9 @@ class FrontDetectWorker:
                 img = rotate(img, self.rotate)
                 res = self.pipe.process(Frame(img, fr.ts_ms, fr.index, fr.video_t_s))
                 self.last = res
+                self.last_view = (res, img.shape[:2])   # satu tuple: dibaca thread kamera tanpa kunci
                 n += 1
-                if self.web is not None and self.web.wants("front"):
+                if self.publish and self.web is not None and self.web.wants("front"):
                     self.web.publish(self.pipe.draw(img, res, self.fps), "front")
             except Exception as e:   # model gagal satu frame: lanjut, jangan matikan kamera depan
                 self.errors += 1
@@ -115,6 +120,16 @@ class FrontDetectWorker:
         self._thread.join(timeout_s)
 
 
+def scale_result(res, sx: float, sy: float):
+    """Salinan FrontResult dengan kotak diskalakan (deteksi di gambar kecil, gambar tampilan lebih besar)."""
+    import dataclasses
+    if sx == 1.0 and sy == 1.0:
+        return res
+    tracks = [dataclasses.replace(t, box=(t.box[0] * sx, t.box[1] * sy, t.box[2] * sx, t.box[3] * sy))
+              for t in res.tracks]
+    return dataclasses.replace(res, tracks=tracks)
+
+
 class FrontPreview:
     def __init__(self, source_cfg: dict, cfg: dict, web=None, recorder=None, h264_sinks=None,
                  source_factory=None, detector: FrontDetectWorker | None = None):
@@ -124,7 +139,12 @@ class FrontPreview:
         self.web = web
         self.recorder = recorder            # MJPG (cuplik ~fps); cadangan kalau kamera tidak mengirim H.264
         self.h264_sinks = [s for s in (h264_sinks or []) if s is not None]   # rekaman / streaming H.264
-        self.detector = detector            # ada -> worker yang mengisi kanal web (gambar + kotak deteksi)
+        self.detector = detector            # ada -> kotak deteksi terakhir digambar di kanal web/overlay
+        # Video depan mengikuti laju kamera (dibatasi fps tiap keluaran), bukan laju deteksi (~10 fps):
+        # dekode di 1/N ukuran (1 = 720p penuh, paling tajam; 2 = 640x360, hemat CPU)
+        self.view_reduce = int((cfg.get("view") or {}).get("decode_reduce", 1))
+        if detector is not None:
+            detector.publish = False
         self.frames = 0
         self.decoded = 0                    # berapa frame yang benar-benar didekode (diagnosis CPU)
         self.connected = False
@@ -153,10 +173,10 @@ class FrontPreview:
             self._log_mode("H.264 dari kamera")
         need_rec = not h264_recording and self.recorder is not None and self.recorder.wants(fr.ts_ms)
         if self.detector is not None:
-            self.detector.offer(fr)         # worker mendekode, mendeteksi, dan mengirim ke web
-        need_web = self.detector is None and self.web is not None and self.web.wants("front")
+            self.detector.offer(fr)         # worker mendekode + mendeteksi di thread sendiri
+        need_web = self.web is not None and self.web.wants("front")
         if need_rec or need_web:
-            img = decode_frame(fr)
+            img = decode_frame(fr, 1 if need_rec else self.view_reduce)
             if img is None:
                 return
             self.decoded += 1
@@ -165,7 +185,16 @@ class FrontPreview:
                 self._log_mode("MJPG")
                 self.recorder.push(img, fr.ts_ms)
             if need_web:
-                self.web.publish(img, "front")
+                self.web.publish(self._annotate(img), "front")
+
+    def _annotate(self, img):
+        det = self.detector
+        view = det.last_view if det is not None else None
+        if view is None:
+            return img
+        res, shape = view
+        h, w = img.shape[:2]
+        return det.pipe.draw(img, scale_result(res, w / shape[1], h / shape[0]), det.fps)
 
     def _run(self) -> None:
         while not self._stop.is_set():

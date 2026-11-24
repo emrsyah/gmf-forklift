@@ -133,6 +133,51 @@ def test_front_preview_falls_back_to_mjpg_when_h264_recorder_stops(tmp_path):
     assert rec.frames == 5
 
 
+def test_front_view_draws_last_detection_scaled_on_every_viewed_frame():
+    from src.capture import Frame
+    from src.front.pipeline import FrontResult, FrontTrack
+    from src.io.front_preview import FrontPreview, scale_result
+
+    class _Det:
+        publish = True
+        fps = 10.0
+
+        def __init__(self):
+            self.offered = 0
+            self.drawn = []
+            self.last_view = None
+            self.pipe = self
+
+        def offer(self, fr):
+            self.offered += 1
+
+        def draw(self, img, res, fps):
+            self.drawn.append((img.shape, res.tracks[0].box))
+            return img
+
+        def close(self, timeout_s=0):
+            pass
+
+    det, web = _Det(), _FakeWeb()
+    fp = FrontPreview({"type": "webcam"}, {"retry_s": 60, "view": {"decode_reduce": 1}}, web, None, [],
+                      source_factory=lambda cfg: (_ for _ in ()).throw(RuntimeError("tidak dipakai")),
+                      detector=det)
+    assert det.publish is False                       # worker tidak mengirim; preview yang menggambar
+    web.want = True
+    jpg = _jpeg(8, 12)
+    fp._handle(Frame(None, 1000, 0, 0.0, {"jpeg": jpg}))
+    assert det.drawn == [] and web.got == [(8, 12, 3)]           # belum ada hasil deteksi: gambar polos
+    track = FrontTrack(1, "person", 0.9, (1.0, 1.0, 3.0, 2.0), None, None, None, None, False)
+    det.last_view = (FrontResult(1000, 0, [track]), (4, 6))      # deteksi di gambar setengah ukuran
+    for i in range(1, 4):
+        fp._handle(Frame(None, 1000 + 33 * i, i, 0.0, {"jpeg": jpg}))
+    assert det.offered == 4 and len(det.drawn) == 3              # tiap frame tampilan, bukan laju deteksi
+    assert det.drawn[0] == ((8, 12, 3), (2.0, 2.0, 6.0, 4.0))
+    res = det.last_view[0]
+    assert scale_result(res, 1.0, 1.0) is res and res.tracks[0].box == (1.0, 1.0, 3.0, 2.0)
+    fp.close()
+
+
 def test_web_view_channels():
     v = WebView(0, queue.Queue(), fps=0)
     try:
