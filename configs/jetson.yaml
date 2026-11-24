@@ -102,8 +102,9 @@ runtime:
       decode_reduce: 2      # 720p -> 640x360 untuk YOLO (input 640); hemat ~8-10% satu core
     # Tampilan (web + overlay_stream): tiap frame kamera didekode dan diberi kotak deteksi terakhir,
     # jadi video depan halus walau deteksi 10 fps. 1 = 720p penuh (tajam), 2 = 640x360 (hemat CPU).
+    # Uji 2026-11-24: 1 (720p penuh @ 20 fps) -> thread depan ~32% CPU dan FPS kabin turun ke ~11-20.
     view:
-      decode_reduce: 1
+      decode_reduce: 2
     recording:
       enabled: false        # data collection 2026-11-22 selesai; nyalakan lagi saat di hangar
       dir: /home/jetson/gmf-forklift/recordings/front

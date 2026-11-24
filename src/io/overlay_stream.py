@@ -71,6 +71,12 @@ class _FfmpegRaw:
     def error_text(self) -> str:
         return self._err.decode(errors="replace").strip()[-300:]
 
+    def kill(self) -> None:
+        try:
+            self.proc.kill()
+        except OSError:
+            pass
+
     def close(self, timeout_s: float = 3.0) -> None:
         try:
             self.proc.stdin.close()
@@ -90,6 +96,11 @@ class _Channel:
         self.period_s = 1.0 / max(float(cfg.get("fps", 15)), 0.1)
         self.max_side = cfg.get("max_side", 640)
         self.retry_s = float(cfg.get("retry_s", 5))
+        # Server di-restart di balik NAT 5G: RST tidak sampai, ffmpeg tidak tahu, pipa penuh -> write() macet
+        # selamanya. Tulisan yang tertahan > stall_s -> ffmpeg dibunuh, tulisan gagal, sambung ulang.
+        self.stall_s = float(cfg.get("stall_s", 5))
+        self._write_t0: float | None = None
+        self.stalls = 0
         self._connect = connect
         self._conn = None
         self._size: tuple[int, int] | None = None
@@ -106,7 +117,23 @@ class _Channel:
 
     def wants(self) -> bool:
         now = time.monotonic()
-        return now >= self.next_try and now - self.last_pub >= self.period_s
+        t0 = self._write_t0
+        if t0 is not None and now - t0 > self.stall_s:
+            self._kill_stalled()
+            return False
+        return now >= self.next_try and now - self.last_pub >= self.period_s and t0 is None
+
+    def _kill_stalled(self) -> None:
+        conn = self._conn
+        if conn is None or self._write_t0 is None:
+            return
+        self._write_t0 = None              # sekali per macet; thread penulis menangani putusnya
+        self.stalls += 1
+        self.next_try = time.monotonic() + self.retry_s
+        print(f"[overlay] {self.url} macet > {self.stall_s:.0f} s; ffmpeg dihentikan", flush=True)
+        kill = getattr(conn, "kill", None)
+        if kill is not None:
+            kill()
 
     def publish(self, img: np.ndarray) -> None:
         self.last_pub = time.monotonic()
@@ -153,11 +180,15 @@ class _Channel:
             w, h = self._size
             if img.shape[1] != w or img.shape[0] != h:
                 img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+            data = np.ascontiguousarray(img).tobytes()
+            self._write_t0 = time.monotonic()
             try:
-                self._conn.write(np.ascontiguousarray(img).tobytes())
+                self._conn.write(data)
             except (OSError, ValueError) as e:
+                self._write_t0 = None
                 self._drop(str(e))
                 continue
+            self._write_t0 = None
             self.connected = True
             self.sent += 1
         if self._conn is not None:

@@ -95,6 +95,41 @@ def test_reconnects_after_failure_with_backoff():
     s.close()
 
 
+def test_stalled_write_is_killed_and_reconnects():
+    import threading
+    conns = []
+
+    class Stuck(FakeConn):
+        def __init__(self, *a):
+            super().__init__(*a)
+            self.killed = threading.Event()
+
+        def write(self, data):
+            if not self.killed.wait(5):          # pipa penuh: tertahan sampai proses dibunuh
+                raise AssertionError("tidak pernah dibunuh")
+            raise BrokenPipeError("dibunuh")
+
+        def kill(self):
+            self.killed.set()
+
+    def connect(url, w, h):
+        conns.append(Stuck(url, w, h) if not conns else FakeConn(url, w, h))
+        return conns[-1]
+
+    s = OverlayStreams({"channels": {"cabin": "c"}, "fps": 100, "retry_s": 0.1, "stall_s": 0.2},
+                       connect=connect)
+    img = np.zeros((32, 32, 3), np.uint8)
+    s.publish(img, "cabin")
+    time.sleep(0.05)
+    assert not s.wants("cabin")                          # sedang menulis: jangan gambar frame baru
+    assert _wait(lambda: (s.wants("cabin") or True) and conns[0].killed.is_set(), 1.0)
+    assert s.channels["cabin"].stalls == 1
+    assert _wait(lambda: s.wants("cabin"), 1.0)
+    s.publish(img, "cabin")
+    assert _wait(lambda: len(conns) == 2 and len(conns[1].frames) == 1)
+    s.close()
+
+
 class Rec:
     def __init__(self, want):
         self.want = want
