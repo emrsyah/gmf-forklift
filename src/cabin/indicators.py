@@ -22,6 +22,7 @@ class IndicatorInput:
     yolo_valid: bool = False      # hasil YOLO tersedia untuk frame ini (atau dibawa dari frame sebelumnya)
     blocked_frame: bool = False   # frame seragam/gelap/terang (D-09, dari frame mentah)
     moving: bool = True           # sinyal kendaraan bergerak (require_moving)
+    reversing: bool = False       # forklift mundur (kamera depan, front_motion) -> D-05 yaw tidak dihitung
 
 
 class Indicator:
@@ -408,6 +409,9 @@ class D05Distraction(Indicator):
         # akumulasi memakai ambang mentah (hysteresis menggeser rasio anggukan lambat -> D-05 palsu, risiko K4);
         # run kontinu memakai hysteresis supaya pitch yang berayun di sekitar ambang tidak memutus run.
         raw_off, off, pitch_only = self._classify(x.sig, x.blocked_frame)
+        if x.reversing and self.c.get("suppress_when_reversing", False) and not pitch_only:
+            # mundur: menoleh ke belakang/spion bukan distraksi (menunduk ke pangkuan tetap dihitung)
+            raw_off = off = False
         self._was_off = off
         self.win.add(x.ts_ms, dt, raw_off)
         if off:

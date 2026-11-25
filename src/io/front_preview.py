@@ -42,9 +42,12 @@ class FrontDetectWorker:
     """
 
     def __init__(self, pipe, fps: float, rotate_deg: int = 0, web=None, log_every_s: float = 5.0,
-                 decode_reduce: int = 1, dets=None):
+                 decode_reduce: int = 1, dets=None, on_result=None, ego=None, reverse=None):
         self.pipe = pipe
+        self.ego = ego                      # EgoMotion (arah gerak forklift dari gambar depan), opsional
+        self.reverse = reverse              # ReverseState yang dibaca pipeline kabin (D-05 saat mundur)
         self.dets = dets                    # DetsPoster: kotak untuk dashboard (video asli + kotak di browser)
+        self.on_result = on_result          # (FrontResult, gambar) -> event F-xx (main.py); dipanggil di thread ini
         self.period_s = 1.0 / max(float(fps), 0.1)
         # JPEG didekode di 1/N ukuran (YOLO memakai input 640 -> 720p penuh tidak perlu). Jarak tetap benar:
         # DistanceEstimator menskalakan intrinsik ke ukuran gambar.
@@ -98,11 +101,19 @@ class FrontDetectWorker:
                     continue
                 img = rotate(img, self.rotate)
                 res = self.pipe.process(Frame(img, fr.ts_ms, fr.index, fr.video_t_s))
+                if self.ego is not None and self.reverse is not None:
+                    was = self.reverse.reversing
+                    self.reverse.update(self.ego.update(img, fr.ts_ms, [t.box for t in res.tracks]))
+                    if self.reverse.reversing != was:
+                        print(f"[depan] forklift {'MUNDUR' if self.reverse.reversing else 'tidak mundur'} "
+                              f"(v={self.reverse.v:+.3f}/s)", flush=True)
                 self.last = res
                 self.last_view = (res, img.shape[:2])   # satu tuple: dibaca thread kamera tanpa kunci
                 if self.dets is not None:
                     from src.front.pipeline import dets_message
                     self.dets.push(dets_message(res, img.shape[1], img.shape[0], self.rotate))
+                if self.on_result is not None:
+                    self.on_result(res, img)
                 n += 1
                 if self.publish and self.web is not None and self.web.wants("front"):
                     self.web.publish(self.pipe.draw(img, res, self.fps), "front")
@@ -114,7 +125,10 @@ class FrontDetectWorker:
             if dt >= self.log_every_s:
                 self.fps = n / dt
                 n_people = sum(1 for t in (self.last.tracks if self.last else []) if t.cls == "person")
-                print(f"[fps-depan] {self.fps:5.1f} FPS | orang {n_people}", flush=True)
+                mv = ""
+                if self.reverse is not None and self.reverse.v is not None:
+                    mv = f" | gerak {self.reverse.v:+.3f}/s{' MUNDUR' if self.reverse.reversing else ''}"
+                print(f"[fps-depan] {self.fps:5.1f} FPS | orang {n_people}{mv}", flush=True)
                 n, t_log = 0, time.monotonic()
 
     def close(self, timeout_s: float = 3.0) -> None:

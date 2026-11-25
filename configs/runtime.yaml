@@ -335,3 +335,4 @@ ui:
 model_versions:
   cabin: cabin_v3
   face: mediapipe-1.2
+  front: front_v2

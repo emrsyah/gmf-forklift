@@ -74,6 +74,11 @@ class CabinPipeline:
                                        runtime.get("model_versions", {}),
                                        runtime.get("timezone_offset_h", 7.0))
         self.require_moving = bool(thresholds.get("vehicle", {}).get("require_moving", False))
+        # ReverseState dari kamera depan (main.py, thread lain); None = tidak ada -> tidak pernah "mundur"
+        self.reverse_state = None
+        self.reverse_grace_ms = float(thresholds.get("D05_distraction", {}).get("reverse_grace_s", 2.0)) * 1000
+        self._last_reverse_wall_ms: int | None = None
+        self.reversing = False
         self._last_yolo: CabinDetections | None = None
         # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
         self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
@@ -178,13 +183,20 @@ class CabinPipeline:
         self._n += 1
 
         moving_ok = moving if self.require_moving else True
+        self.reversing = False
+        if self.reverse_state is not None:
+            now = int(time.time() * 1000)
+            if self.reverse_state.reversing_now():
+                self._last_reverse_wall_ms = now
+            self.reversing = (self._last_reverse_wall_ms is not None
+                              and now - self._last_reverse_wall_ms <= self.reverse_grace_ms)
         x = IndicatorInput(
             ts_ms=frame.ts_ms, sig=sig,
             phone_conf=yolo.phone_conf if yolo else 0.0,
             no_helmet=yolo.no_helmet if yolo else False,
             no_vest=yolo.no_vest if yolo else False,
             yolo_valid=yolo is not None,
-            blocked_frame=blocked, moving=moving_ok,
+            blocked_frame=blocked, moving=moving_ok, reversing=self.reversing,
         )
         if self._t_first_ms is None:
             self._t_first_ms = frame.ts_ms

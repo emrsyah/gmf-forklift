@@ -196,7 +196,18 @@ runtime:
       # tambahan; jam di gambar = waktu kejadian di klip (K7). Klip Jetson tetap cadangan.
       timestamp: true
 
+events:
+  # 2026-11-25: event kamera depan F-01..F-03 (USULAN, belum disepakati HSE GMF) ke dashboard lewat agen edge.
+  # Kamera depan BELUM dikalibrasi di forklift (front_camera.yaml mount h_m/theta_deg perkiraan) -> jarak kasar.
+  front_events_enabled: true
+
 thresholds:
+  # 2026-11-25: arah gerak forklift dari kamera depan; saat mundur menoleh ke belakang/spion bukan D-05.
+  # Uji KPI Lembar A (forklift diam) tidak terpengaruh; matikan keduanya jika ragu saat uji.
+  front_motion:
+    enabled: true
+  D05_distraction:
+    suppress_when_reversing: true
   D10_ppe:
     # Pemasangan C930e kabin 2026-11-25: pengemudi di tengah gambar (pusat kepala x ~0,45-0,65); orang di
     # samping forklift (x ~0,85) memicu D-10 palsu. Kamera dipindah -> sesuaikan rentang ini.

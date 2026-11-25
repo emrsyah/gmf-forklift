@@ -99,6 +99,30 @@ def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety A
 EVENT_TS_KEYS = ("ts_event_ms", "ts_condition_start_ms")
 
 
+def make_front_event_handler(cfg, f_pipe, sinks, rt):
+    """Event F-01..F-03 dari hasil deteksi depan (thread deteksi depan): snapshot depan beranotasi + sinks."""
+    from src.config import load_yaml, resolve_path
+    from src.front.events import FrontEventGate, write_snapshot
+
+    cam_cfg = load_yaml(resolve_path(rt.get("front", {}).get("calibration", "configs/front_camera.yaml")))
+    gate = FrontEventGate.from_config(cfg, cam_cfg)
+    events_dir = resolve_path(rt.get("sink", {}).get("file", {}).get("dir", "events"))
+
+    def on_result(res, img):
+        for act in gate.step(res):
+            if act.kind != "event":
+                continue            # buzzer kabin hanya untuk D-xx; F-xx ke dashboard saja (usulan)
+            ev = act.payload
+            if ev["phase"] == "start":
+                try:
+                    ev["snapshot_path"] = write_snapshot(events_dir, ev, f_pipe.draw(img, res))
+                except Exception as e:   # snapshot gagal tidak boleh menahan event
+                    print(f"[depan] snapshot gagal {ev['event_id']}: {e}", flush=True)
+            sinks.send(ev)
+            print(f"[event] {ev['phase']:5s} {ev['code']} {ev['level']} id={ev['event_id']} (depan)", flush=True)
+    return on_result
+
+
 def handle_actions(actions, alerter, sinks, recorder, image, now_ms=None, clock_corr_ms: int = 0) -> list[dict]:
     """Jalankan aksi keputusan satu frame. Buzzer DULU, baru event, supaya event `start` membawa
     `ts_buzzer_ms` (waktu buzzer kabin benar-benar diperintahkan; bahan ukur K5 kabin).
@@ -283,14 +307,30 @@ def main(argv=None):
             f_dets = DetsPoster(dets_url)
         f_det = None
         det_cfg = fp_cfg.get("detect", {}) or {}
-        if det_cfg.get("enabled", False):    # YOLO + ByteTrack depan; kotak di kanal web, tanpa event F-xx
+        if det_cfg.get("enabled", False):    # YOLO + ByteTrack depan; kotak di kanal web (+ event F-xx opsional)
             from src.front.pipeline import FrontPipeline
             from src.io.front_preview import FrontDetectWorker
             try:
-                f_det = FrontDetectWorker(FrontPipeline.from_config(cfg), det_cfg.get("fps", 10),
+                f_pipe = FrontPipeline.from_config(cfg)
+                on_front = None
+                if cfg.events.get("front_events_enabled", False):
+                    on_front = make_front_event_handler(cfg, f_pipe, sinks, rt)
+                    print("[depan] event F-01..F-03 AKTIF (usulan, belum disepakati HSE GMF)"
+                          + ("" if f_pipe.calibrated else "; kamera depan BELUM dikalibrasi -> jarak kasar"),
+                          flush=True)
+                ego = rev = None
+                fm_cfg = cfg.thresholds.get("front_motion", {}) or {}
+                if fm_cfg.get("enabled", False):     # arah gerak forklift dari kamera depan -> D-05 saat mundur
+                    from src.front.egomotion import EgoMotion, ReverseState
+                    ego, rev = EgoMotion(fm_cfg), ReverseState(fm_cfg)
+                    pipe.reverse_state = rev
+                    print("[depan] deteksi mundur aktif (D-05 menoleh tidak dihitung saat mundur: "
+                          f"{cfg.thresholds.get('D05_distraction', {}).get('suppress_when_reversing', False)})",
+                          flush=True)
+                f_det = FrontDetectWorker(f_pipe, det_cfg.get("fps", 10),
                                           int(fp_cfg.get("rotate", 0)), vout,
                                           det_cfg.get("log_every_s", 5), det_cfg.get("decode_reduce", 1),
-                                          dets=f_dets)
+                                          dets=f_dets, on_result=on_front, ego=ego, reverse=rev)
                 print(f"[depan] deteksi aktif: {rt['front']['yolo']['weights']} @ <= {det_cfg.get('fps', 10)} fps",
                       flush=True)
             except Exception as e:           # model tidak ada / gagal dimuat: pratinjau tetap jalan

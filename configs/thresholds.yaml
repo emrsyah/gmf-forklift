@@ -181,6 +181,11 @@ D05_distraction:
   # ...tetapi untuk off-road karena YAW, hanya jika sudah terlihat >= sekian detik sebelum wajah hilang.
   # uji_yawn 112.5 s (video normal): yaw lompat 30->53 dalam 0.15 s lalu wajah hilang -> D-05 palsu. 0 = mati.
   face_lost_hold_min_yaw_off_s: 0.5
+  # Saat forklift MUNDUR (front_motion, dari kamera depan) menoleh ke samping/belakang/spion = perilaku benar:
+  # off-road karena YAW tidak dihitung (menunduk ke pangkuan tetap dihitung). Juga sekian detik setelah mundur.
+  # Bukan dari spec (usulan tim 2026-11-25); diam di tempat (uji KPI) tidak terpengaruh.
+  suppress_when_reversing: false
+  reverse_grace_s: 2.0
 
 D06_phone:
   # Spec awal 0.35. Di-tune pada split VALIDASI cabin_v0 (data publik, 137 ponsel):
@@ -351,3 +356,22 @@ front:
   speed_window_s: 1.0
   warning_zone_m: 6.0         # F-01 (usulan, belum disepakati HSE GMF)
   danger_zone_m: 3.0          # F-02 / F-03 (usulan)
+  event_min_active_s: 0.5     # kandidat F-xx harus bertahan sekian detik sebelum event (kotak berkedip diabaikan)
+
+# Arah gerak forklift dari kamera depan (src/front/egomotion.py): laju skala pemandangan per detik,
+# + = maju (membesar), - = mundur (mengecil). Klip geofence 2026-11-25 (forklift maju, ~7 fps): +0.05..+0.4;
+# diam: |v| < 0.01; kamera tertutup orang sesaat: lonjakan +-0.14 (diredam median 1 s + waktu masuk).
+front_motion:
+  enabled: false
+  width: 320                  # lebar gambar untuk optical flow
+  max_corners: 150
+  min_points: 15
+  box_margin_frac: 0.1        # kotak deteksi (orang/kendaraan bergerak sendiri) diperlebar lalu diabaikan
+  ransac_px: 1.5
+  max_dt_s: 0.5               # dua frame lebih jauh dari ini tidak dibandingkan
+  median_window_s: 1.0
+  reverse_enter_v: 0.05       # mundur jika median v <= -0.05 ...
+  reverse_enter_s: 0.7        # ... selama 0.7 s
+  reverse_exit_v: 0.02        # selesai jika median v > -0.02 ...
+  reverse_exit_s: 1.5         # ... selama 1.5 s
+  stale_s: 1.5                # kamera depan berhenti memperbarui -> dianggap tidak mundur
