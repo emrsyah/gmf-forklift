@@ -76,7 +76,10 @@ cabin:
     backend: onnxruntime    # ultralytics (.pt/.onnx/.engine) | onnxruntime (.onnx) | tensorrt (Jetson)
     # cabin_v1: RunPod RTX 4090, 150 epoch, imgsz 640, ~26 ribu gambar publik (2026-11-14).
     # cabin_v0 (CPU, imgsz 416) disimpan di models/weights/archive/cabin_v0.*
-    weights: models/weights/cabin_best.onnx
+    # cabin_v3 (2026-11-25) = v1 + DMD (ponsel di mobil, kamera wajah/badan) + COCO lookalike. Gerbang vs v1:
+    # ponsel DMD (orang tak dilihat) recall 0.392 -> 0.975, FP-gambar 9.4% -> 1.1%; data lama tidak turun.
+    # KANDIDAT, uji di webcam dulu. Kembali ke v1: models/weights/cabin_best.onnx
+    weights: models/weights/cabin_v3_candidate.onnx
     imgsz: 640
     # Input YOLO HARUS sama dengan preprocessing training (grayscale 3ch + CLAHE), terlepas dari simulate_nir.
     # Dengan input RGB, model cabin_v0 memberi 'phone' palsu (mis. dasi). none = pakai gambar apa adanya.

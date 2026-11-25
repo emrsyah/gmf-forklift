@@ -13,7 +13,8 @@ CSI hanya bisa dibuka satu proses.
 
 | File | Tujuan di Jetson | Dipakai oleh |
 |---|---|---|
-| `cabin_best.onnx` | `models/weights/` | YOLO kabin: ponsel D-06, helm/rompi D-10 (cabin_v1) |
+| `cabin_v3_candidate.onnx` | `models/weights/` | YOLO kabin: ponsel D-06, helm/rompi D-10 (**cabin_v3**, default; ponsel jauh lebih baik) |
+| `cabin_best.onnx` | `models/weights/` | cabin_v1, cadangan jika cabin_v3 bermasalah |
 | `front_v2.onnx` | `models/weights/` | YOLO depan: person + rintangan + **kardus (`box`)**, F-01..F-03 |
 | `front_best.onnx` | `models/weights/` | front_v1, cadangan jika front_v2 bermasalah |
 | `face_detection_yunet_2023mar.onnx` | `models/face/` | detektor wajah YuNet (crop sebelum Face Landmarker) |
@@ -41,7 +42,7 @@ cp /tmp/gmf-models/face_landmarker.task models/mediapipe/
 # 4. Build engine TensorRT FP16 DI Jetson (beberapa menit per model). Engine terikat versi TensorRT/GPU,
 #    jadi jangan disalin dari mesin lain.
 . .venv/bin/activate
-for m in cabin_best front_v2; do
+for m in cabin_v3_candidate front_v2; do
   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/$m.onnx --saveEngine=models/weights/$m.trt --fp16
   python -m tools.wrap_trt_engine models/weights/$m.trt models/weights/$m.onnx models/weights/$m.engine
 done
@@ -60,7 +61,7 @@ Lihat hasilnya di browser: `http://<IP-Jetson>:8090` (kabin) dan `http://<IP-Jet
 
 - **`configs/jetson.yaml`**: overlay khusus Jetson.
   - Kabin: pipeline GStreamer IMX219, mode 1640x1232. Crop area pengemudi, auto-exposure hanya membaca area
-    pengemudi, keluaran 960x720 GRAY8. YuNet crop menyala, YOLO kabin `cabin_best.engine`.
+    pengemudi, keluaran 960x720 GRAY8. YuNet crop menyala, YOLO kabin `cabin_v3_candidate.engine`.
   - Depan: C930e dengan kontrol UVC (fokus tetap, 50 Hz) dan YOLO `front_v2.engine`.
   - Ada **opsi** mode sensor penuh 3280x2464 untuk wajah yang lebih besar. Opsi ini **belum diuji** di Jetson,
     jadi ukur FPS dulu sebelum dipakai.
@@ -68,6 +69,9 @@ Lihat hasilnya di browser: `http://<IP-Jetson>:8090` (kabin) dan `http://<IP-Jet
 - **`configs/thresholds.yaml`, `configs/events.yaml`**: ambang indikator D-01..D-10, kode/level/prioritas.
 
 ## Kembali ke versi sebelumnya
+
+- Model kabin lama: di `configs/jetson.yaml` set `cabin.yolo.weights: models/weights/cabin_best.engine`
+  (build engine dari `cabin_best.onnx` dengan langkah 4).
 
 - Model depan lama: di `configs/jetson.yaml` set `front.yolo.weights: models/weights/front_best.engine`
   (build engine dari `front_best.onnx` dengan langkah 4).

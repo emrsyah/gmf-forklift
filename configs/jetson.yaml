@@ -55,11 +55,15 @@ runtime:
       # tensorrt_native: TensorRT + cuda-python, tanpa torch. Di Jetson uji torch sistem crash (bus error)
       # pada operasi CUDA yang dipakai NMS Ultralytics, jadi backend `tensorrt` (Ultralytics) tidak bisa dipakai.
       # Engine di-build DI Jetson ini:
-      #   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/cabin_best.onnx --saveEngine=models/weights/cabin_best.trt --fp16
-      #   python -m tools.wrap_trt_engine models/weights/cabin_best.trt models/weights/cabin_best.onnx models/weights/cabin_best.engine
+      #   /usr/src/tensorrt/bin/trtexec --onnx=models/weights/cabin_v3_candidate.onnx --saveEngine=models/weights/cabin_v3_candidate.trt --fp16
+      #   python -m tools.wrap_trt_engine models/weights/cabin_v3_candidate.trt models/weights/cabin_v3_candidate.onnx models/weights/cabin_v3_candidate.engine
       # Butuh: pip install "cuda-python>=12.6,<12.7" (versi CUDA JetPack).
+      # cabin_v3 (2026-11-25) = cabin_v1 + data ponsel DMD (CC BY-NC-ND, khusus PoC non-komersial).
+      # Gerbang vs cabin_v1: ponsel DMD (orang tak dilihat) recall 0.392 -> 0.975, FP-gambar 9.4% -> 1.1%;
+      # data lama tidak turun. Belum diuji dengan kamera kabin asli -> cek D-06 di lapangan.
+      # Kembali ke cabin_v1: weights: models/weights/cabin_best.engine (build dari cabin_best.onnx).
       backend: tensorrt_native
-      weights: models/weights/cabin_best.engine
+      weights: models/weights/cabin_v3_candidate.engine
       every_n_frames: 1
   continuous_recording:
     # Sesi gladi Lembar A berikutnya: rekaman mentah (tanpa overlay) + .ts.csv untuk replay harness.
