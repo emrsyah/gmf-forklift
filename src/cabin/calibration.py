@@ -34,13 +34,20 @@ class Calibration:
         self._ad = ad
         self._ad_buf: deque = deque()          # (ts_ms, ear)
         self.adaptive_used = False
+        # pose nol adaptif selama kalibrasi belum berhasil: median pose (pengemudi kebanyakan menatap depan)
+        ap = cfg.get("adaptive_pose") or {}
+        self.adaptive_pose = bool(ap.get("enabled", False))
+        self._ap = ap
+        self._ap_buf: deque = deque()          # (ts_ms, yaw, pitch, roll)
+        self.adaptive_pose_used = False
 
     def set_population(self):
         self.active = False
         self.done = False
         if not self.adaptive_used:            # baseline adaptif yang sudah terbentuk tetap dipakai
             self.ear_baseline = self.pop_ear
-        self.yaw0, self.pitch0, self.roll0 = self.mount
+        if not self.adaptive_pose_used:       # sama untuk pose nol adaptif
+            self.yaw0, self.pitch0, self.roll0 = self.mount
         self.status = "baseline populasi"
 
     def _adapt(self, ts_ms: int, raw: dict) -> None:
@@ -63,9 +70,34 @@ class Calibration:
         self.ear_baseline = max(ear, floor)
         self.adaptive_used = True
 
+    def _adapt_pose(self, ts_ms: int, raw: dict) -> None:
+        """Tanpa kalibrasi yang berhasil, nol pose = sudut pasang (mount_*). Kamera yang dipasang ulang miring
+        membuat menatap depan terbaca menoleh (forklift 2026-11-25: kalibrasi gagal 3x 'frame kurang', menatap
+        depan yaw +10..+17, pitch -10..-13 -> lirik spion kanan ~25 deg sudah D-05). Perkiraan: median pose
+        `window_s` terakhir; menoleh/menunduk sesaat (skenario 8-11, 18-19) hanya ekor, median tetap di depan.
+        Pose jauh dari sudut pasang (> max_dev_deg) tidak dihitung."""
+        a = self._ap
+        dev = float(a.get("max_dev_deg", 35))
+        my, mp, mr = self.mount
+        if not all(np.isfinite(raw.get(k, np.nan)) for k in ("yaw", "pitch", "roll")):
+            return                            # pose dari fallback (tanpa pitch) tidak dipakai
+        if abs(raw["yaw"] - my) > dev or abs(raw["pitch"] - mp) > dev or abs(raw["roll"] - mr) > dev:
+            return
+        self._ap_buf.append((ts_ms, raw["yaw"], raw["pitch"], raw["roll"]))
+        win = float(a.get("window_s", 60)) * 1000
+        while self._ap_buf and self._ap_buf[0][0] < ts_ms - win:
+            self._ap_buf.popleft()
+        if self._ap_buf[-1][0] - self._ap_buf[0][0] < float(a.get("min_s", 10)) * 1000:
+            return
+        arr = np.array([b[1:] for b in self._ap_buf])
+        self.yaw0, self.pitch0, self.roll0 = (float(v) for v in np.median(arr, axis=0))
+        self.adaptive_pose_used = True
+
     def observe(self, ts_ms: int, raw: dict) -> None:
         if self.adaptive and not self.done:
             self._adapt(ts_ms, raw)
+        if self.adaptive_pose and not self.done and not self.active:
+            self._adapt_pose(ts_ms, raw)
         if not self.active:
             return
         if self._t0 is None:

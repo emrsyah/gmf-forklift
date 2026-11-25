@@ -56,6 +56,15 @@ calibration:
     min_s: 5
     max_abs_yaw_deg: 20
     max_abs_pitch_deg: 20
+  # Pose nol adaptif selama kalibrasi belum berhasil (setelah gagal -> populasi): median yaw/pitch/roll wajah
+  # (landmark lengkap) di jendela terakhir, abaikan pose > max_dev_deg dari sudut pasang. Bukan dari spec.
+  # Forklift 2026-11-25: kalibrasi gagal 3x ("frame kurang", wajah gelap), kamera dipasang ulang miring ->
+  # menatap depan yaw +10..+17 / pitch -10..-13 -> lirik spion kanan ~25 deg sudah D-05. Laptop: mati.
+  adaptive_pose:
+    enabled: false
+    window_s: 60
+    min_s: 10
+    max_dev_deg: 35
   max_pose_std_deg: 5.0
   population_ear_baseline: 0.28   # fallback jika belum dikalibrasi (EAR mata terbuka rata-rata populasi)
   max_attempts: 3             # setelah gagal sekian kali -> baseline populasi (hotkey c untuk ulang)

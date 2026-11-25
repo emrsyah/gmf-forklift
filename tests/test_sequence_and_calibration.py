@@ -189,6 +189,27 @@ def test_calibration_ear_std_open_only_ignores_blinks():
     assert cal.done and cal.ear_baseline == pytest.approx(0.30)
 
 
+def test_adaptive_pose_zero_follows_offaxis_camera():
+    # forklift 2026-11-25: kalibrasi gagal, kamera menyamping -> menatap depan yaw +13 / pitch -11
+    cfg = {**CAL, "adaptive_pose": {"enabled": True, "window_s": 60, "min_s": 10, "max_dev_deg": 35}}
+    cal = Calibration(cfg, auto_start=False)              # baseline populasi (kalibrasi sudah menyerah)
+    ts = _feed(cal, 150, yaw=13, pitch=-11, roll=2)       # 5 s: belum cukup data (min_s 10)
+    assert (cal.yaw0, cal.pitch0) == (0.0, 0.0)
+    ts = _feed(cal, 300, ts, yaw=13, pitch=-11, roll=2)
+    for _ in range(4):                                    # lirik spion / menoleh (skenario 8/10) sesekali
+        ts = _feed(cal, 60, ts, yaw=40, pitch=-11, roll=2)
+        ts = _feed(cal, 60, ts, yaw=60, pitch=-11, roll=2)   # > max_dev: tidak dihitung
+        ts = _feed(cal, 150, ts, yaw=13, pitch=-11, roll=2)
+    assert cal.yaw0 == pytest.approx(13) and cal.pitch0 == pytest.approx(-11) and cal.roll0 == pytest.approx(2)
+    cal.set_population()                                  # tetap dipakai (seperti baseline EAR adaptif)
+    assert cal.yaw0 == pytest.approx(13)
+    cal.observe(ts, {"ear_l": 0.3, "ear_r": 0.3, "blink": 0.0, "yaw": 13.0, "pitch": float("nan"), "roll": 2.0})
+    assert cal.pitch0 == pytest.approx(-11)               # NaN tidak merusak nol
+    off = Calibration(CAL, auto_start=False)              # default mati (laptop)
+    _feed(off, 600, yaw=13, pitch=-11)
+    assert off.yaw0 == 0.0
+
+
 def test_adaptive_baseline_learns_open_eye_ear_despite_closures():
     # sim_P1b: peraga bermata sipit (EAR terbuka 0.18) memejam berulang sejak awal -> kalibrasi gagal 3x
     cal = Calibration(CAL)
