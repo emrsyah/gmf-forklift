@@ -210,6 +210,10 @@ thresholds:
     enabled: true
   D05_distraction:
     suppress_when_reversing: true
+    # 2026-11-25: cek spion = kepala berputar sedikit (mata yang melirik); peragaan menoleh Lembar A 8/10/11
+    # (sim_P1c) |yaw| median ~50 deg, run terpanjang > 40 deg masih 2,1-2,4 s (butuh 1,5 s). Replay sim:
+    # skenario D-05 yang terdeteksi sama dengan 30 deg. 45+ terlalu mepet (skenario 10 run 2,0 s, 50 -> 1,5 s).
+    yaw_deg: 40
   # 2026-11-25: alert hanya saat ada pengemudi di kursi (kamera C930e kabin saat ini, wajah pengemudi tinggi
   # 0,19-0,35 x frame). Kamera dipindah -> ukur ulang (wajah pengemudi harus >= min_face_h_frac).
   driver_presence:
