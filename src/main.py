@@ -179,6 +179,10 @@ def main(argv=None):
         overrides = deep_merge(overrides, load_yaml(path))
     cfg = Config.load(a.runtime, a.thresholds, a.events, overrides=overrides or None)
     rt = cfg.runtime
+    from src.capture.camera_settings import apply_camera_settings
+    cam_note = apply_camera_settings(rt)     # tukar/putar kamera dari dashboard (camera_config.json)
+    if cam_note:
+        print(f"[kamera] {cam_note}", flush=True)
     if rt.get("threads"):
         from src.perf import apply_thread_limits
         print(f"[threads] batas thread: {apply_thread_limits(rt['threads'])}", flush=True)

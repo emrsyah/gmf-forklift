@@ -119,10 +119,18 @@ runtime:
         iframe_period_ms: 1000
         profile: constrained_baseline
         unit_id: null
+  # 2026-11-25: tukar/putar kamera dari dashboard. Agen edge menulis file ini lalu me-restart detector;
+  # isinya menimpa cabin.source.device/rotate, front.source.device dan front_preview.rotate di bawah
+  # (src/capture/camera_settings.py). Tanpa file = config apa adanya. Kamera diganti -> ubah path ini.
+  camera_settings:
+    file: /home/jetson/minerva/camera_config.json
+    cabin_device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_D4371FCE-video-index0
+    front_device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_DAFF5DCE-video-index0
   front_preview:
     enabled: true
     # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
     # 2026-11-25: C930e depan kini terpasang tegak -> tanpa putaran (270 dulu untuk pemasangan miring).
+    # Ditimpa frontRotate dari camera_settings.file (dashboard).
     rotate: 0
     detect:
       enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx

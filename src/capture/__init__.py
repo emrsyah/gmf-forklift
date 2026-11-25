@@ -380,9 +380,39 @@ class ReconnectingSource(FrameSource):
         return inner.clock_correction_ms() if inner is not None and hasattr(inner, "clock_correction_ms") else 0
 
 
+_ROTATE = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+class RotatedSource(FrameSource):
+    """Memutar setiap frame searah jarum jam (0/90/180/270, sama dengan front_preview.rotate), untuk kamera
+    yang terpasang miring/terbalik. Diputar SEBELUM pipeline: wajah terbalik tidak terdeteksi MediaPipe
+    (forklift 2026-11-25: kamera kabin terbalik -> "wajah tidak terlihat"). Rekaman/overlay ikut tegak."""
+
+    def __init__(self, inner: FrameSource, deg: int):
+        if deg not in _ROTATE:
+            raise ValueError(f"rotate harus 0/90/180/270, bukan {deg}")
+        self.inner = inner
+        self.code = _ROTATE[deg]
+        self.fps_hint = getattr(inner, "fps_hint", 30.0)
+
+    def read(self) -> Optional[Frame]:
+        f = self.inner.read()
+        if f is not None and f.image is not None:
+            f.image = cv2.rotate(f.image, self.code)
+        return f
+
+    def release(self) -> None:
+        self.inner.release()
+
+    def __getattr__(self, name):            # clock_correction_ms dll. dari sumber di dalamnya
+        return getattr(self.inner, name)
+
+
 def make_cabin_source(cfg: dict) -> FrameSource:
-    """Sumber kabin: live -> ReconnectingSource (source.retry_s, 0 = mati seperti dulu); file -> apa adanya."""
+    """Sumber kabin: live -> ReconnectingSource (source.retry_s, 0 = mati seperti dulu); file -> apa adanya.
+    `rotate` (searah jarum jam) memutar frame kamera live; rekaman (type file) sudah tegak, tidak diputar."""
     retry = float(cfg.get("retry_s", 10))
-    if cfg.get("type", "webcam") in LIVE_TYPES and retry > 0:
-        return ReconnectingSource(cfg, retry, cfg.get("retry_max_s", 60))
-    return make_source(cfg)
+    live = cfg.get("type", "webcam") in LIVE_TYPES
+    src = ReconnectingSource(cfg, retry, cfg.get("retry_max_s", 60)) if live and retry > 0 else make_source(cfg)
+    deg = int(cfg.get("rotate", 0) or 0) % 360
+    return RotatedSource(src, deg) if live and deg else src
