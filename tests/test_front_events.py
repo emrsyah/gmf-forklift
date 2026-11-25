@@ -46,6 +46,23 @@ def test_person_in_danger_zone_start_then_end():
     assert [e["phase"] for e in out] == ["start", "end"]
 
 
+def test_cooldown_blocks_restart_of_same_code():
+    g = FrontEventGate(EVENTS, ["F02", "F03", "F01"], 0.5, "jetson-dev", "jetson-front", cooldown_s=30)
+    out = []
+
+    def run(t_from, t_to, codes):
+        for ts in range(t_from, t_to, 100):
+            out.extend(events(g.step(res(ts, codes))))
+
+    run(0, 3000, ["F02"])            # start (tetap terbuka selama orang ada)
+    run(3000, 6000, [])              # end
+    run(6000, 9000, ["F02"])         # orang lewat lagi < 30 s -> tidak ada start baru
+    run(9000, 12000, [])
+    assert [e["phase"] for e in out] == ["start", "end"]
+    run(31000, 33000, ["F02"])       # > 30 s setelah start pertama -> boleh lagi
+    assert [e["phase"] for e in out] == ["start", "end", "start"]
+
+
 def test_higher_priority_code_wins():
     g = gate()
     out = []

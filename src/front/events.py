@@ -20,8 +20,9 @@ from src.decision import Action, DecisionEngine
 
 class FrontEventGate:
     def __init__(self, events_cfg: dict, priority: list[str], min_active_s: float, device_id: str,
-                 id_prefix: str, model_versions: dict | None = None):
+                 id_prefix: str, model_versions: dict | None = None, cooldown_s: float = 0.0):
         self.min_active_ms = float(min_active_s) * 1000
+        self.cooldown_ms = float(cooldown_s) * 1000
         cfg = dict(events_cfg, priority=list(priority))
         self.decision = DecisionEngine(cfg, device_id, id_prefix, model_versions)
         self._since: dict[str, int] = {}            # kode kandidat -> ts pertama terlihat (beruntun)
@@ -29,10 +30,12 @@ class FrontEventGate:
     @classmethod
     def from_config(cls, cfg, cam_cfg: dict) -> "FrontEventGate":
         rt = cfg.runtime
+        fc = cfg.thresholds.get("front", {})
         return cls(cfg.events, cam_cfg.get("zones", {}).get("priority", ["F02", "F03", "F01"]),
-                   cfg.thresholds.get("front", {}).get("event_min_active_s", 0.5),
+                   fc.get("event_min_active_s", 0.5),
                    rt.get("device_id", "laptop-dev"), f"{rt.get('event_id_prefix', 'laptop')}-front",
-                   {"front": rt.get("model_versions", {}).get("front", "front")})
+                   {"front": rt.get("model_versions", {}).get("front", "front")},
+                   fc.get("event_cooldown_s", 0.0))
 
     def step(self, res) -> list[Action]:
         """res: FrontResult. Mengembalikan aksi keputusan (event start/end, buzz) untuk frame ini."""
@@ -49,6 +52,12 @@ class FrontEventGate:
                 conf = max((k.confidence for k in cand), default=0.0)
                 dist = min((k.distance_m for k in cand), default=None)
                 active[c] = {"confidence": conf, "condition_start_ms": t0, "distance_m": dist}
+        # cooldown per kode (semua level): orang lalu-lalang di depan forklift parkir tidak membanjiri dashboard
+        open_code = self.decision.open.code if self.decision.open is not None else None
+        for c in list(active):
+            last = self.decision.last_start_ms.get(c)
+            if c != open_code and last is not None and ts - last < self.cooldown_ms:
+                del active[c]
         extra = None
         if active:
             top = min(active, key=self.decision.rank)

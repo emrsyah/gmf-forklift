@@ -356,7 +356,10 @@ front:
   speed_window_s: 1.0
   warning_zone_m: 6.0         # F-01 (usulan, belum disepakati HSE GMF)
   danger_zone_m: 3.0          # F-02 / F-03 (usulan)
-  event_min_active_s: 0.5     # kandidat F-xx harus bertahan sekian detik sebelum event (kotak berkedip diabaikan)
+  event_min_active_s: 1.0     # kandidat F-xx harus bertahan sekian detik sebelum event (kotak berkedip diabaikan)
+  # jeda minimum antar start kode F yang sama (A-03 juga). Uji parkir 2026-11-25: orang lalu-lalang -> 28 F-02
+  # dalam ~3 menit. Event yang sedang terbuka tetap berjalan; hanya start baru yang ditahan.
+  event_cooldown_s: 30.0
 
 # Arah gerak forklift dari kamera depan (src/front/egomotion.py): laju skala pemandangan per detik,
 # + = maju (membesar), - = mundur (mengecil). Klip geofence 2026-11-25 (forklift maju, ~7 fps): +0.05..+0.4;
