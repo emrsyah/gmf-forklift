@@ -99,16 +99,25 @@ def run_fps_only(src, show: bool, max_frames: int, win: str = "Forklift Safety A
 EVENT_TS_KEYS = ("ts_event_ms", "ts_condition_start_ms")
 
 
-def make_front_event_handler(cfg, f_pipe, sinks, rt):
-    """Event F-01..F-03 dari hasil deteksi depan (thread deteksi depan): snapshot depan beranotasi + sinks."""
+def make_front_event_handler(cfg, f_pipe, sinks, rt, driver_present=None):
+    """Event F-01..F-03 dari hasil deteksi depan (thread deteksi depan): snapshot depan beranotasi + sinks.
+
+    driver_present: callable -> bool (gerbang pengemudi kabin). Dengan thresholds front.require_driver, kode F
+    hanya aktif saat ada pengemudi (forklift dipakai); kamera di meja / forklift parkir kosong tidak mengirim F-xx.
+    """
+    import dataclasses
+
     from src.config import load_yaml, resolve_path
     from src.front.events import FrontEventGate, write_snapshot
 
     cam_cfg = load_yaml(resolve_path(rt.get("front", {}).get("calibration", "configs/front_camera.yaml")))
     gate = FrontEventGate.from_config(cfg, cam_cfg)
     events_dir = resolve_path(rt.get("sink", {}).get("file", {}).get("dir", "events"))
+    need_driver = bool(cfg.thresholds.get("front", {}).get("require_driver", False)) and driver_present is not None
 
     def on_result(res, img):
+        if need_driver and res.active_codes and not driver_present():
+            res = dataclasses.replace(res, active_codes=[])
         for act in gate.step(res):
             if act.kind != "event":
                 continue            # buzzer kabin hanya untuk D-xx; F-xx ke dashboard saja (usulan)
@@ -314,7 +323,8 @@ def main(argv=None):
                 f_pipe = FrontPipeline.from_config(cfg)
                 on_front = None
                 if cfg.events.get("front_events_enabled", False):
-                    on_front = make_front_event_handler(cfg, f_pipe, sinks, rt)
+                    on_front = make_front_event_handler(cfg, f_pipe, sinks, rt,
+                                                        driver_present=lambda: pipe.presence.present)
                     print("[depan] event F-01..F-03 AKTIF (usulan, belum disepakati HSE GMF)"
                           + ("" if f_pipe.calibrated else "; kamera depan BELUM dikalibrasi -> jarak kasar"),
                           flush=True)

@@ -350,6 +350,20 @@ D10_ppe:
 vehicle:
   require_moving: false       # true di operasi nyata; false saat uji KPI (pertanyaan terbuka #2)
 
+# Gerbang "pengemudi ada di kursi" (src/cabin/presence.py). Uji lapangan 2026-11-25 (sampel 54 snapshot):
+# banyak D-05/D-10/D-06/D-04 saat kursi kosong, kamera di meja kantor, atau orang jauh / di samping forklift.
+# Ukuran wajah di snapshot (tinggi kotak / tinggi frame): pengemudi 0,19-0,35 (x 0,33-0,73); orang berdiri jauh
+# 0,05-0,08; orang di samping forklift 0,11-0,15 di x 0,86-0,88. D-09 tidak digerbang (lensa ditutup = tanpa wajah).
+# Bergantung posisi kamera -> nilai per pemasangan di overlay (jetson.yaml). Laptop: mati.
+driver_presence:
+  enabled: false
+  min_face_h_frac: 0.12       # wajah lebih kecil = bukan pengemudi (terlalu jauh dari kamera)
+  x_range: null               # [lo, hi] pusat wajah (0..1); null = di mana saja
+  y_range: null
+  enter_s: 2.0                # wajah memenuhi syarat sekian detik -> pengemudi ada
+  hold_s: 10.0                # tetap "ada" sekian detik tanpa wajah (menoleh jauh, menunduk, pejam)
+  gated_codes: [D01, D02, D04, D05, D06, D10]
+
 front:
   person_conf: 0.35
   approach_speed_mps: 0.3     # mendekat jika jarak mengecil > ini
@@ -360,6 +374,9 @@ front:
   # jeda minimum antar start kode F yang sama (A-03 juga). Uji parkir 2026-11-25: orang lalu-lalang -> 28 F-02
   # dalam ~3 menit. Event yang sedang terbuka tetap berjalan; hanya start baru yang ditahan.
   event_cooldown_s: 30.0
+  # F-xx hanya saat ada pengemudi di kabin (driver_presence): kamera di meja / forklift kosong tidak mengirim F-xx.
+  # Uji 2026-11-25: 87 F-02 hari itu, sampel semuanya kamera depan tergeletak di meja kantor.
+  require_driver: false
 
 # Arah gerak forklift dari kamera depan (src/front/egomotion.py): laju skala pemandangan per detik,
 # + = maju (membesar), - = mundur (mengecil). Klip geofence 2026-11-25 (forklift maju, ~7 fps): +0.05..+0.4;

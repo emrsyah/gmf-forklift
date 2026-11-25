@@ -16,6 +16,7 @@ from .face import FaceObs
 from .indicators import IndicatorInput, build_indicators
 from .signals import FaceSignals, SignalExtractor
 from .phone_crop import PhoneCrop
+from .presence import DriverPresence
 from .phone_filter import PhoneFilter, face_box_from_landmarks
 from .eye_cls import EyeClassifier
 from .ppe_cls import PpeClassifier
@@ -79,6 +80,9 @@ class CabinPipeline:
         self.reverse_grace_ms = float(thresholds.get("D05_distraction", {}).get("reverse_grace_s", 2.0)) * 1000
         self._last_reverse_wall_ms: int | None = None
         self.reversing = False
+        # tanpa pengemudi di kursi (kursi kosong, kamera di meja, orang jauh/di samping) -> kode wajah/YOLO ditahan
+        self.presence = DriverPresence(thresholds.get("driver_presence"))
+        self.active_ungated: dict = {}
         self._last_yolo: CabinDetections | None = None
         # filter ponsel (D-06) relatif wajah pengemudi; di-update hanya saat YOLO benar-benar jalan
         self.phone_filter = PhoneFilter(thresholds.get("D06_phone", {}).get("filter"))
@@ -157,6 +161,7 @@ class CabinPipeline:
         if self.eye_cls is not None and obs.present and obs.pose_only and obs.eye_pts is not None:
             obs.eye_closed_p = self.eye_cls.p_closed(roi_img, obs.eye_pts)   # titik mata dalam koordinat ROI
         tm["face"] = (time.perf_counter() - t1) * 1000
+        self.presence.update(obs, (img.shape[1], img.shape[0]), frame.ts_ms)
         self._auto_recalibrate(obs.present, frame.ts_ms)
         sig = self.signals.update(obs, frame.ts_ms)
         # D-09 sebagian: perlu status wajah (baseline sel hanya diperbarui saat wajah terlihat)
@@ -207,6 +212,8 @@ class CabinPipeline:
             if ind.update(x) and not warm:
                 active[code] = {"confidence": ind.confidence,
                                 "condition_start_ms": ind.condition_start_ms}
+        self.active_ungated = active        # sebelum gerbang pengemudi (tools/replay_alarms.py: perbandingan)
+        active = self.presence.filter(active)
         extra = {"t_video_s": round(frame.video_t_s, 3)}
         actions = self.decision.step(frame.ts_ms, active, extra)
         top = min(active, key=self.decision.rank) if active else None

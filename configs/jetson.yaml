@@ -208,6 +208,14 @@ thresholds:
     enabled: true
   D05_distraction:
     suppress_when_reversing: true
+  # 2026-11-25: alert hanya saat ada pengemudi di kursi (kamera C930e kabin saat ini, wajah pengemudi tinggi
+  # 0,19-0,35 x frame). Kamera dipindah -> ukur ulang (wajah pengemudi harus >= min_face_h_frac).
+  driver_presence:
+    enabled: true
+    min_face_h_frac: 0.12
+    x_range: [0.2, 0.8]
+  front:
+    require_driver: true
   D10_ppe:
     # Pemasangan C930e kabin 2026-11-25: pengemudi di tengah gambar (pusat kepala x ~0,45-0,65); orang di
     # samping forklift (x ~0,85) memicu D-10 palsu. Kamera dipindah -> sesuaikan rentang ini.
