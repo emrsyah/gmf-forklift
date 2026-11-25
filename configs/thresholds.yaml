@@ -308,6 +308,21 @@ D10_ppe:
   driver_torso_x_margin: 0.25        # pusat wajah dalam rentang x torso (+-25% lebar)
   # `helmet` dan `head_no_helmet` di kepala yang sama (IoU >= ini): yang skornya lebih tinggi menang
   helmet_conflict_iou: 0.3
+  # Uji forklift 2026-11-25 (153 D-10 sehari, sampel 12 snapshot): helm terpakai tetapi `head_no_helmet`.
+  # Penyebab: (1) puncak helm terpotong tepi atas gambar, (2) helm + kacamata safety dari dekat,
+  # (3) orang di samping forklift. Aturan di bawah (src/cabin/yolo_cabin.py):
+  # - veto: kandidat helm conf >= helmet_veto_conf yang menutupi >= helmet_veto_cover kotak kepala -> berhelm.
+  #   Test publik cabin_v0 (209 kepala tanpa helm): recall 0.737 -> 0.737 (tidak turun), FP 30 -> 28.
+  helmet_veto_conf: 0.15
+  helmet_veto_cover: 0.3
+  # - kepala yang menyentuh tepi atas (y1 <= frac x tinggi frame): helm bisa di luar gambar -> tidak dinilai.
+  #   Akibatnya kepala TANPA helm yang terpotong juga tidak dinilai -> arahkan kamera agar seluruh kepala masuk.
+  head_top_margin_frac: 0.04
+  # - rentang x (0..1) pusat kepala/torso pengemudi; di luar = orang lain. null = semua (per pemasangan kamera,
+  #   diisi di overlay Jetson).
+  driver_x_range: null
+  # - true: tanpa wajah pengemudi (membelakangi kamera, kursi kosong) helm/rompi tidak dinilai (overlay Jetson).
+  require_driver_face: false
   # A8 (src/cabin/ppe_cls.py): classifier helm/rompi pada potongan kepala/dada dari kotak wajah pengemudi.
   # Bobot: training/train_ppe_cls.py (data publik). Ambang no_*_thr = ambang val di report.json training.
   # mode: replace = classifier menggantikan aturan YOLO (bagian tak terlihat = bukan pelanggaran)

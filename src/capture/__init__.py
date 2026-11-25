@@ -317,3 +317,72 @@ def parse_source_arg(arg: str) -> dict:
     if "!" in arg and "appsink" in arg:
         return {"type": "gstreamer", "pipeline": arg}
     return {"type": "file", "path": arg}
+
+
+LIVE_TYPES = ("webcam", "gstreamer", "url")
+
+
+class ReconnectingSource(FrameSource):
+    """Sumber live yang tidak pernah "habis": kamera gagal dibuka atau berhenti mengirim frame -> dilepas,
+    lalu dibuka lagi dengan jeda bertahap (retry_s .. retry_max_s). Tanpa ini proses keluar saat kamera
+    kabin (CSI) dicabut, dan kamera depan (thread di proses yang sama) ikut mati; run_detector.sh lalu
+    me-restart tiap ~15 s (uji 2026-11-24: 114 restart + kernel oops nvargus tiap percobaan buka).
+    Selama menunggu, read() memblok; thread lain (kamera depan, web) tetap jalan."""
+
+    def __init__(self, cfg: dict, retry_s: float = 10.0, retry_max_s: float = 60.0):
+        self.cfg = cfg
+        self.retry_s = float(retry_s)
+        self.retry_max_s = max(float(retry_max_s), self.retry_s)
+        self.inner: Optional[FrameSource] = None
+        self.fails = 0
+        self._open()
+
+    def _open(self) -> bool:
+        try:
+            self.inner = make_source(self.cfg)
+            self.fps_hint = getattr(self.inner, "fps_hint", 30.0)
+            return True
+        except Exception as e:
+            print(f"[capture] kamera kabin gagal dibuka: {e}", flush=True)
+            self.inner = None
+            return False
+
+    def _drop(self) -> None:
+        if self.inner is not None:
+            try:
+                self.inner.release()
+            except Exception:
+                pass
+        self.inner = None
+
+    def read(self) -> Optional[Frame]:
+        while True:
+            if self.inner is not None:
+                f = self.inner.read()
+                if f is not None:
+                    if self.fails:
+                        print(f"[capture] kamera kabin tersambung lagi (setelah {self.fails} percobaan)", flush=True)
+                    self.fails = 0
+                    return f
+                self._drop()
+            wait = min(self.retry_s * (2 ** min(self.fails, 6)), self.retry_max_s)
+            self.fails += 1
+            print(f"[capture] kamera kabin tidak mengirim frame; coba lagi dalam {wait:.0f} s "
+                  f"(percobaan {self.fails}); kamera depan tetap jalan", flush=True)
+            time.sleep(wait)
+            self._open()
+
+    def release(self) -> None:
+        self._drop()
+
+    def clock_correction_ms(self) -> int:
+        inner = self.inner
+        return inner.clock_correction_ms() if inner is not None and hasattr(inner, "clock_correction_ms") else 0
+
+
+def make_cabin_source(cfg: dict) -> FrameSource:
+    """Sumber kabin: live -> ReconnectingSource (source.retry_s, 0 = mati seperti dulu); file -> apa adanya."""
+    retry = float(cfg.get("retry_s", 10))
+    if cfg.get("type", "webcam") in LIVE_TYPES and retry > 0:
+        return ReconnectingSource(cfg, retry, cfg.get("retry_max_s", 60))
+    return make_source(cfg)

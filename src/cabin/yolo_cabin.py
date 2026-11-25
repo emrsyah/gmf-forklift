@@ -58,6 +58,33 @@ def helmet_wins(head: Detection, helmets: list[Detection], d10: dict) -> bool:
     return any(iou(head.xyxy, h.xyxy) >= thr and h.conf >= head.conf for h in helmets)
 
 
+def helmet_vetoed(head: Detection, weak_helmets: list[Detection], d10: dict) -> bool:
+    """Kandidat helm berskor rendah (>= helmet_veto_conf) yang menutupi sebagian besar kotak kepala ->
+    kepala dianggap berhelm. Uji forklift 2026-11-25: helm + kacamata safety dari dekat -> `head_no_helmet`
+    0.6 dengan kotak helm 0.19 di atasnya (IoU kecil karena kotak kepala tanpa helm lebih rendah)."""
+    cover = d10.get("helmet_veto_cover")
+    if cover is None:
+        return False
+    return any(inside_frac(head.xyxy, h.xyxy) >= cover for h in weak_helmets)
+
+
+def head_cut_at_top(box, frame_h: int | None, d10: dict) -> bool:
+    """Kepala menyentuh tepi atas gambar -> helm (bagian paling atas) bisa di luar gambar; tidak dinilai.
+    Uji forklift 2026-11-25: kamera kabin dari depan-atas, puncak helm terpotong -> `head_no_helmet`."""
+    m = d10.get("head_top_margin_frac")
+    return m is not None and frame_h is not None and box[1] <= m * frame_h
+
+
+def in_driver_x_range(box, frame_w: int | None, d10: dict) -> bool:
+    """Pusat kotak (x, 0..1) di dalam rentang kursi pengemudi (driver_x_range, per pemasangan kamera).
+    Orang di samping forklift (di luar rentang) tidak dinilai, juga saat wajah pengemudi tidak terlihat."""
+    rng = d10.get("driver_x_range")
+    if not rng or not frame_w:
+        return True
+    cx = (box[0] + box[2]) / 2 / frame_w
+    return rng[0] <= cx <= rng[1]
+
+
 def is_driver_head(box, face_box, d10: dict) -> bool:
     """Kotak kepala milik pengemudi = sebagian besar kotak wajah ada di dalamnya."""
     return inside_frac(face_box[:4], box) >= d10.get("driver_head_face_inside_min", 0.5)
@@ -87,12 +114,15 @@ def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts
         phone_box = best.xyxy if best else None
     ppe_conf = d10.get("conf", 0.40)
     helmets = [d for d in dets if d.cls_name == "helmet" and d.conf >= ppe_conf]
-    heads = [d for d in dets if d.cls_name == "head_no_helmet" and d.conf >= ppe_conf
-             and not helmet_wins(d, helmets, d10)]
-    vests = [d for d in dets if d.cls_name == "vest" and d.conf >= ppe_conf]
+    weak_helmets = [d for d in dets if d.cls_name == "helmet" and d.conf >= d10.get("helmet_veto_conf", ppe_conf)]
+    frame_w = frame_wh[0] if frame_wh else None
     frame_h = frame_wh[1] if frame_wh else None
+    heads = [d for d in dets if d.cls_name == "head_no_helmet" and d.conf >= ppe_conf
+             and not helmet_wins(d, helmets, d10) and not helmet_vetoed(d, weak_helmets, d10)
+             and not head_cut_at_top(d.xyxy, frame_h, d10) and in_driver_x_range(d.xyxy, frame_w, d10)]
+    vests = [d for d in dets if d.cls_name == "vest" and d.conf >= d10.get("vest_conf", ppe_conf)]
     torsos = [d for d in dets if d.cls_name == "torso" and d.conf >= ppe_conf
-              and torso_judgeable(d.xyxy, frame_h, d10)]
+              and torso_judgeable(d.xyxy, frame_h, d10) and in_driver_x_range(d.xyxy, frame_w, d10)]
     if d10.get("driver_only", False) and face_box is not None:
         # hanya kepala/torso milik pengemudi (wajah dari Face Landmarker); orang lain di gambar diabaikan.
         # Landmark dagu yang terpotong tepi bawah jatuh di luar gambar, kotak YOLO tidak -> clip ke frame dulu.
@@ -102,6 +132,10 @@ def interpret(dets: list[Detection], d06: dict, d10: dict, phone_filter=None, ts
         if fb[2] > fb[0] and fb[3] > fb[1]:
             heads = [d for d in heads if is_driver_head(d.xyxy, fb, d10)]
             torsos = [d for d in torsos if is_driver_torso(d.xyxy, fb, d10)]
+    if d10.get("require_driver_face", False) and face_box is None:
+        # wajah pengemudi tidak terlihat (membelakangi kamera, kursi kosong): helm/rompi siapa yang dinilai
+        # tidak jelas -> tidak dinilai. Uji 2026-11-25: punggung dengan rompi -> torso tanpa `vest` -> D-10 palsu.
+        heads, torsos = [], []
     no_helmet = bool(heads)
     thr = d10.get("vest_iou_max", 0.3)
     in_min = d10.get("vest_inside_min", 0.6)

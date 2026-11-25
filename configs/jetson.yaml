@@ -7,39 +7,32 @@ runtime:
   event_id_prefix: jetson
   cabin:
     source:
-      type: gstreamer
-      # IMX219 (CSI, sensor-id 0). Mode 1640x1232 = binning penuh -> FOV sensor penuh (4:3, wajah sampai dada).
-      # nvvidconv (VIC, hardware) memperkecil ke 960x720 sebelum ke CPU: MediaPipe/YOLO memakai <= 640 px.
-      # Uji 2026-11-16 di ruangan redup: auto-exposure memanjang -> FPS turun ke ~12 dan noise tinggi (est. 23).
-      # exposuretimerange maks 33 ms (ns) menjaga 30 FPS (sisanya ditutup gain); tnr-mode 2 = pengurang noise ISP.
-      # Uji forklift 2026-11-23 (15:25-16:00, luar ruangan): kamera menghadap terlalu tinggi; wajah di tepi
-      # bawah, separuh gambar langit -> AE mengikuti langit, wajah gelap, MediaPipe "terlihat 0%". Kamera tidak
-      # boleh dipindah (mengganggu pengemudi), jadi:
-      #   aeregion  = AE hanya mengukur area pengemudi (koordinat sensor 1640x1232: kiri atas kanan bawah bobot)
-      #   nvvidconv left/right/top/bottom = crop area pengemudi (4:3) dari sensor penuh -> wajah ~1,5x lebih besar
-      # Uji forklift 2026-11-24 (rekaman 17:09:44, merem): wajah ~130 px di 960x720 -> mata ~15x5 px dan buram;
-      # openness hanya turun ke 0,55-0,7 saat merem (ambang 0,30) -> D-01/D-02 tidak pernah aktif. Penyebab utama:
-      # wajah terlalu kecil/buram (fokus lensa + arah kamera lebih menentukan daripada resolusi, uji webcam
-      # tools/res_compare.py). OPSI (BELUM diuji di Jetson, ukur FPS dulu): mode penuh 3280x2464 (maks 21 fps),
-      # crop sama (koordinat x2), keluaran 1440x1080 -> piksel wajah 1,5x per sisi; jika dipakai, set juga
-      # continuous_recording.max_side: 1440:
-      #   nvarguscamerasrc sensor-id=0 exposuretimerange="13000 33000000" gainrange="1 16"
-      #   tnr-mode=2 tnr-strength=0.6 ee-mode=1 aeregion="900 1400 2380 2464 1.0" !
-      #   video/x-raw(memory:NVMM),width=3280,height=2464,framerate=21/1 !
-      #   nvvidconv left=530 right=2748 top=800 bottom=2464 !
-      #   video/x-raw,width=1440,height=1080,format=GRAY8 ! appsink drop=1 max-buffers=1
-      pipeline: >-
-        nvarguscamerasrc sensor-id=0 exposuretimerange="13000 33000000" gainrange="1 16"
-        tnr-mode=2 tnr-strength=0.6 ee-mode=1 aeregion="450 700 1190 1232 1.0" !
-        video/x-raw(memory:NVMM),width=1640,height=1232,framerate=30/1 !
-        nvvidconv left=265 right=1374 top=400 bottom=1232 !
-        video/x-raw,width=960,height=720,format=GRAY8 ! appsink drop=1 max-buffers=1
-      # GRAY8 langsung dari nvvidconv (VIC): tanpa videoconvert BGRx->BGR di CPU, lalu BGR->GRAY lagi di
-      # simulate_nir. Uji 2026-11-23: capture 77% -> 53% CPU @30 fps, simulate_nir 2.3 -> 1.7 ms.
-      # Luma GRAY8 = studio range 16..235 -> diregangkan ke 0..255 (nilai sama dengan jalur BGR lama).
-      gray_range: limited
+      # 2026-11-25: kamera kabin diganti webcam USB Logitech C930e (serial D4371FCE), bukan lagi IMX219 CSI.
+      # Path by-id dengan serial: dua C930e terpasang (DAFF5DCE = depan), pola `C930e_*` akan cocok keduanya.
+      # Konfigurasi IMX219 lama (nvarguscamerasrc, crop area pengemudi, GRAY8) ada di jetson.yaml.bak-20261125-csi.
+      type: webcam
+      index: 2              # cadangan; nomor video berubah setelah reboot -> pakai `device`
+      device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_D4371FCE-video-index0
+      api: v4l2
+      # C930e: 960x720 tidak tersedia. 1280x720 membuat deteksi wajah ~100 ms (AI 6-12 FPS saat ada wajah);
+      # 960x540: ~30-50 ms (11-17 FPS). Stream kabin tetap 960 px (overlay_stream.max_side), jadi tidak ada
+      # kualitas video yang hilang; yang berkurang hanya piksel wajah untuk AI.
+      fourcc: MJPG
+      width: 960
+      height: 540
+      fps: 30
+      autofocus: null
+      focus: null
+      # Wajah pengemudi dekat (~0,5-1 m): autofocus tetap menyala (fokus 0 di kamera depan = jauh).
+      # 50 Hz untuk lampu, tanpa dynamic framerate supaya FPS tidak turun saat redup.
+      v4l2_controls:
+        focus_automatic_continuous: 1
+        power_line_frequency: 1        # 50 Hz
+        exposure_dynamic_framerate: 0
     # IMX219 NoIR (tanpa filter IR) di lampu ruangan -> warna magenta. Grayscale + CLAHE: sama dengan
     # preprocessing training YOLO dan dengan kamera NIR + lampu IR nanti di kabin.
+    # 2026-11-25: tetap grayscale + CLAHE dengan webcam C930e: model wajah/YOLO dan ambang dikalibrasi dengan
+    # gambar seperti ini; warna bisa menurunkan akurasi.
     simulate_nir: true
     face:
       # Uji forklift 2026-11-23: wajah kecil di tepi bawah -> BlazeFace (jarak selfie) "terlihat 0%".
@@ -100,7 +93,7 @@ runtime:
     source:
       type: webcam
       index: 1              # cadangan; nomor video berubah setelah reboot -> pakai `device`
-      device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_*-video-index0
+      device: /dev/v4l/by-id/usb-046d_Logitech_Webcam_C930e_DAFF5DCE-video-index0   # serial: kabin juga C930e (D4371FCE)
       api: v4l2
       fourcc: MJPG          # 720p 30 fps (15 fps saat gelap)
       width: 1280
@@ -129,7 +122,8 @@ runtime:
   front_preview:
     enabled: true
     # Uji 2026-11-22: C930e terpasang miring; 90 menghasilkan gambar terbalik -> 270 (berlawanan jarum jam).
-    rotate: 270
+    # 2026-11-25: C930e depan kini terpasang tegak -> tanpa putaran (270 dulu untuk pemasangan miring).
+    rotate: 0
     detect:
       enabled: true         # kotak orang di kamera depan (web + dashboard); tanpa event F-xx
       fps: 10
@@ -187,12 +181,26 @@ runtime:
       # Depan: video asli kamera (front_preview.stream) + kotak di browser, bukan encode ulang di sini.
       channels:
         cabin: fl-01/cabin
-      fps: 20               # kabin ~22 FPS deteksi
+      # 2026-11-25: 20 -> 30. Batas ini = jarak minimum antarframe (50 ms); loop AI ~25 FPS (40 ms) membuat
+      # setiap frame kedua dibuang (~12 fps, tidak rata). 30 = kirim tiap frame hasil AI.
+      fps: 30
       max_side: 960
-      bitrate: 1200k
-      bufsize: 600k
+      # 2026-11-25: 1200k -> 2000k dan preset superfast (bawaan ultrafast): gambar kabin lebih tajam.
+      # Uplink 5G dipakai bersama video depan (3 Mbps, hanya saat ditonton) dan unggah klip.
+      bitrate: 2000k
+      bufsize: 1000k
+      preset: superfast
       gop_s: 1
       retry_s: 10
       # Server MINERVA merekam aliran ini (buffer 10 menit) dan memotong klip kejadian darinya tanpa unggah
       # tambahan; jam di gambar = waktu kejadian di klip (K7). Klip Jetson tetap cadangan.
       timestamp: true
+
+thresholds:
+  D10_ppe:
+    # Pemasangan C930e kabin 2026-11-25: pengemudi di tengah gambar (pusat kepala x ~0,45-0,65); orang di
+    # samping forklift (x ~0,85) memicu D-10 palsu. Kamera dipindah -> sesuaikan rentang ini.
+    driver_x_range: [0.2, 0.8]
+    # Pengemudi membelakangi kamera (mundur, menengok ke belakang): rompi dari belakang tidak dikenali ->
+    # D-10 palsu. Tanpa wajah pengemudi, helm/rompi tidak dinilai (orang lain di gambar juga tidak).
+    require_driver_face: true

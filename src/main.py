@@ -168,7 +168,8 @@ def main(argv=None):
     win = window_title(rt.get("ui", {}).get("window", "cabin"), sim)
     max_side = rt.get("ui", {}).get("display_max_side")
 
-    src = make_source(rt["cabin"]["source"])
+    from src.capture import make_cabin_source
+    src = make_cabin_source(rt["cabin"]["source"])
     if sim is not None:
         src = SimulatedSource(src, sim)
     if a.fps_only:

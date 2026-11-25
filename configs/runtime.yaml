@@ -333,5 +333,5 @@ ui:
   display_max_side: 1280
 
 model_versions:
-  cabin: cabin_v1
+  cabin: cabin_v3
   face: mediapipe-1.2

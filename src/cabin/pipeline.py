@@ -135,8 +135,9 @@ class CabinPipeline:
         # YOLO (GPU) tidak bergantung pada hasil wajah -> dikirim ke thread pekerja SEBELUM MediaPipe (CPU),
         # hasilnya diambil sesudahnya. Input sama persis dengan mode berurutan -> deteksi identik.
         yolo_job = None
-        det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35),
-                       self.th.get("D10_ppe", {}).get("conf", 0.40))
+        d10 = self.th.get("D10_ppe", {})
+        det_conf = min(self.th.get("D06_phone", {}).get("conf", 0.35), d10.get("conf", 0.40),
+                       d10.get("vest_conf", d10.get("conf", 0.40)))
         if (self.detector is not None and not self.yolo_async
                 and (self._n % self.yolo_every == 0 or self._last_yolo is None)):
             yolo_in = self._yolo_input(roi_img)
@@ -277,7 +278,13 @@ class CabinPipeline:
 
     def _predict_timed(self, image: np.ndarray, conf: float):
         t = time.perf_counter()
-        dets = self.detector.predict(image, conf=conf)
+        # helm berskor rendah dipakai untuk veto `head_no_helmet` (D10_ppe.helmet_veto_conf); kelas lain tetap >= conf
+        veto = self.th.get("D10_ppe", {}).get("helmet_veto_conf")
+        if veto is not None and veto < conf:
+            dets = [d for d in self.detector.predict(image, conf=veto)
+                    if d.conf >= conf or d.cls_name == "helmet"]
+        else:
+            dets = self.detector.predict(image, conf=conf)
         return dets, (time.perf_counter() - t) * 1000
 
     def _auto_recalibrate(self, face_present: bool, ts_ms: int):
