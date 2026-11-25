@@ -218,6 +218,12 @@ thresholds:
     x_range: [0.2, 0.8]
   front:
     require_driver: true
+  calibration:
+    # 2026-11-25: kedipan biasa membuat kalibrasi hampir selalu ditolak (std EAR ~0.1) -> baseline populasi.
+    # mount_pitch_deg SENGAJA tetap 0: replay 4 segmen dengan -28 (median pitch duduk normal C930e tinggi)
+    # memindahkan D-05 palsu ke D-01/D-02 (A-03), karena melirik ke bawah dari kamera tinggi tampak pejam.
+    # Perbaikannya kamera dipasang rendah (dekat kemudi), bukan sudut ini.
+    ear_std_open_only: true
   D10_ppe:
     # Pemasangan C930e kabin 2026-11-25: pengemudi di tengah gambar (pusat kepala x ~0,45-0,65); orang di
     # samping forklift (x ~0,85) memicu D-10 palsu. Kamera dipindah -> sesuaikan rentang ini.
