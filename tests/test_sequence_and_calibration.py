@@ -171,6 +171,24 @@ def test_calibration_rejects_steady_closed_eyes():
     assert cal.done and cal.ear_baseline == pytest.approx(0.19)
 
 
+def _feed_blinking(cal, n, ts0=0):
+    """Mata terbuka (EAR 0.30) dengan kedipan normal: 4 frame terpejam tiap 30 frame (~1 s)."""
+    for i in range(n):
+        closed = i % 30 < 4
+        cal.observe(ts0 + i * 33, {"ear_l": 0.08 if closed else 0.30, "ear_r": 0.08 if closed else 0.30,
+                                   "blink": 0.9 if closed else 0.0, "yaw": 0.0, "pitch": 0.0, "roll": 0.0})
+
+
+def test_calibration_ear_std_open_only_ignores_blinks():
+    # Jetson 2026-11-25: kedipan biasa membuat std EAR ~0.1 > 0.04 -> kalibrasi hampir selalu ditolak
+    cal = Calibration({**CAL, "ear_std_open_only": False})
+    _feed_blinking(cal, 153)                        # tepat satu percobaan (5 s)
+    assert not cal.done and "tidak stabil" in cal.status
+    cal = Calibration({**CAL, "ear_std_open_only": True})
+    _feed_blinking(cal, 153)
+    assert cal.done and cal.ear_baseline == pytest.approx(0.30)
+
+
 def test_adaptive_baseline_learns_open_eye_ear_despite_closures():
     # sim_P1b: peraga bermata sipit (EAR terbuka 0.18) memejam berulang sejak awal -> kalibrasi gagal 3x
     cal = Calibration(CAL)

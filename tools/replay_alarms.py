@@ -49,11 +49,12 @@ def main(argv=None) -> int:
         k, v = kv.split("=", 1)
         _set(th, k, v)
 
-    pipe = CabinPipeline(rt, th, cfg.events)
-    base = DecisionEngine(cfg.events, "replay", "replay-ungated")
     gated, ungated = collections.Counter(), collections.Counter()
     rows, total_s = [], 0.0
     for v in a.videos:
+        # pipeline baru per video: segmen bisa tidak berurutan waktu (timestamp mundur membuat event tak pernah tutup)
+        pipe = CabinPipeline(rt, th, cfg.events)
+        base = DecisionEngine(cfg.events, "replay", "replay-ungated")
         t_wall = time.time()
         first = last = None
         n = 0

@@ -39,6 +39,9 @@ calibration:
   duration_s: 5.0
   min_frames: 30
   max_ear_std: 0.04           # tolak kalibrasi jika EAR terlalu bervariasi
+  # true: frame kedipan (blink >= 0.5) tidak dihitung dalam std di atas. Jetson 2026-11-25: kalibrasi ditolak
+  # 1203x "mata tidak stabil" (std median 0.098) -> selalu baseline populasi. Laptop: false (perilaku lama).
+  ear_std_open_only: false
   # tolak kalibrasi saat mata terpejam (terpejam diam lolos cek variansi): rata-rata blendshape blink > ini,
   # atau median EAR < population_ear_baseline x rasio ini
   max_blink_mean: 0.5

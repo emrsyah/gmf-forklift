@@ -104,8 +104,17 @@ class Calibration:
         yaw = np.array([b["yaw"] for b in buf])
         pitch = np.array([b["pitch"] for b in buf])
         roll = np.array([b["roll"] for b in buf])
-        if ear.std() > self.c.get("max_ear_std", 0.04):
-            self.status = f"kalibrasi ditolak: mata tidak stabil (std {ear.std():.3f}), ulangi"
+        # ear_std_open_only: kedipan (blink >= closed_blink_min) tidak dihitung dalam kestabilan. Uji Jetson
+        # 2026-11-25: 1203x "mata tidak stabil" (std median 0.098 vs batas 0.04) -> kalibrasi hampir tidak pernah
+        # berhasil di forklift -> baseline populasi.
+        ear_chk = ear
+        if self.c.get("ear_std_open_only", False):
+            bl = np.array([b.get("blink", 0.0) for b in buf])
+            open_ = ear[bl < self.c.get("closed_blink_min", 0.5)]
+            if len(open_) >= self.min_frames // 2:
+                ear_chk = open_
+        if ear_chk.std() > self.c.get("max_ear_std", 0.04):
+            self.status = f"kalibrasi ditolak: mata tidak stabil (std {ear_chk.std():.3f}), ulangi"
             self._maybe_give_up()
             return
         # Mata terpejam yang diam juga "stabil": tanpa cek ini baseline = EAR mata tertutup (mis. percobaan ulang
