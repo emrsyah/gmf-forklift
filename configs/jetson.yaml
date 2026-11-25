@@ -147,10 +147,12 @@ runtime:
     # Ke server MINERVA hanya saat ada penonton (on_demand): MediaMTX server memanggil runOnDemand ->
     # server -> agen edge -> POST :8090/stream?name=front (sewa 15 s, diperbarui). Uji 2026-11-24: uplink
     # 5G dipakai bersama klip kejadian; video depan 3 Mbps tanpa penonton membuat klip terlambat.
+    # 2026-11-25: rtsp://127.0.0.1:8554/front dihapus. MediaMTX lokal tidak jalan -> ffmpeg baru tiap 5 s dan
+    # ~7000 baris "Connection refused" di detector.log. Untuk menonton lewat Tailscale: jalankan
+    # tools/jetson/mediamtx.sh lalu tambahkan lagi URL itu di sini.
     stream:
       enabled: true
       urls:
-        - rtsp://127.0.0.1:8554/front
         - url: srt://10.1.36.86:8890?streamid=publish:fl-01/front&pkt_size=1316&latency=300000
           on_demand: true
   # Uji 2026-11-23 (src.main saja, 20 s): bawaan 168% CPU ~20.7 FPS | opencv 2: 129% ~19.5 FPS |
